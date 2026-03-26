@@ -30,6 +30,11 @@ ENABLE_ALERTS="${VACCIGUARD_ENABLE_ALERTS:-false}"
 SNS_ALERT_TOPIC_ARN="${VACCIGUARD_SNS_ALERT_TOPIC_ARN:-}"
 KINESIS_STREAM_NAME="${VACCIGUARD_KINESIS_STREAM_NAME:-vacciguard-stream}"
 DYNAMO_TABLE_NAME="${VACCIGUARD_DYNAMO_TABLE_NAME:-VacciguardFridgeState}"
+METRICS_NAMESPACE="${VACCIGUARD_METRICS_NAMESPACE:-VacciGuard/BaselinePipeline}"
+SIMULATOR_ACTIVE_FRIDGES="${VACCIGUARD_SIMULATOR_ACTIVE_FRIDGES:-500}"
+SIMULATOR_RECORDS_PER_SECOND="${VACCIGUARD_SIMULATOR_RECORDS_PER_SECOND:-500}"
+SIMULATOR_DURATION_SECONDS="${VACCIGUARD_SIMULATOR_DURATION_SECONDS:-300}"
+SIMULATOR_RUN_LABEL="${VACCIGUARD_SIMULATOR_RUN_LABEL:-baseline}"
 PIPELINE_COMMAND='["python","flink/pipeline.py"]'
 SIMULATOR_COMMAND='["python","simulator/simulator.py"]'
 ECR_URI="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/${REPO_NAME}"
@@ -146,6 +151,18 @@ EOF
         "sns:Publish"
       ],
       "Resource": "${SNS_ALERT_TOPIC_ARN:-*}"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "cloudwatch:PutMetricData"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "cloudwatch:namespace": "${METRICS_NAMESPACE}"
+        }
+      }
     }
   ]
 }
@@ -211,7 +228,12 @@ register_task_definition() {
         {"name": "VACCIGUARD_KINESIS_STREAM_NAME", "value": "${KINESIS_STREAM_NAME}"},
         {"name": "VACCIGUARD_DYNAMO_TABLE_NAME", "value": "${DYNAMO_TABLE_NAME}"},
         {"name": "VACCIGUARD_ENABLE_ALERTS", "value": "${ENABLE_ALERTS}"},
-        {"name": "VACCIGUARD_SNS_ALERT_TOPIC_ARN", "value": "${SNS_ALERT_TOPIC_ARN}"}
+        {"name": "VACCIGUARD_SNS_ALERT_TOPIC_ARN", "value": "${SNS_ALERT_TOPIC_ARN}"},
+        {"name": "VACCIGUARD_METRICS_NAMESPACE", "value": "${METRICS_NAMESPACE}"},
+        {"name": "VACCIGUARD_SIMULATOR_ACTIVE_FRIDGES", "value": "${SIMULATOR_ACTIVE_FRIDGES}"},
+        {"name": "VACCIGUARD_SIMULATOR_RECORDS_PER_SECOND", "value": "${SIMULATOR_RECORDS_PER_SECOND}"},
+        {"name": "VACCIGUARD_SIMULATOR_DURATION_SECONDS", "value": "${SIMULATOR_DURATION_SECONDS}"},
+        {"name": "VACCIGUARD_SIMULATOR_RUN_LABEL", "value": "${SIMULATOR_RUN_LABEL}"}
       ],
       "logConfiguration": {
         "logDriver": "awslogs",
