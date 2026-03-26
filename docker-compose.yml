@@ -1,35 +1,37 @@
-# docker-compose.yml — VacciGuard local dev stack
+# docker-compose.yml - VacciGuard local development stack
 #
-# Services:
-#   flink-pipeline  — reads from Kinesis, writes to DynamoDB (always running)
-#   simulator       — pushes mock fridge records to Kinesis (runs once and exits)
-#
-# Usage:
-#   Start pipeline only  : docker compose up flink-pipeline
-#   Run full flow        : docker compose up
-#   Send data only       : docker compose run --rm simulator
-#
-# AWS credentials are read from your host machine's ~/.aws directory.
-# No secrets are hardcoded here.
+# This file is intentionally optimized for local development.
+# Cloud deployment should use the baked Docker image directly and IAM roles,
+# not host AWS credential mounts or live source-code bind mounts.
 
-x-aws-env: &aws-env
+x-local-runtime: &local-runtime
+  platform: linux/amd64
   environment:
-    - AWS_DEFAULT_REGION=ap-south-1
+    AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-ap-south-1}
+    VACCIGUARD_REGION: ${VACCIGUARD_REGION:-ap-south-1}
+    VACCIGUARD_KINESIS_STREAM_NAME: ${VACCIGUARD_KINESIS_STREAM_NAME:-vacciguard-stream}
+    VACCIGUARD_DYNAMO_TABLE_NAME: ${VACCIGUARD_DYNAMO_TABLE_NAME:-VacciguardFridgeState}
+    VACCIGUARD_SNS_ALERT_TOPIC_ARN: ${VACCIGUARD_SNS_ALERT_TOPIC_ARN:-}
+    VACCIGUARD_ENABLE_ALERTS: ${VACCIGUARD_ENABLE_ALERTS:-true}
+    VACCIGUARD_BREACH_TEMP_CELSIUS: ${VACCIGUARD_BREACH_TEMP_CELSIUS:-8.0}
+    VACCIGUARD_WARNING_TEMP_CELSIUS: ${VACCIGUARD_WARNING_TEMP_CELSIUS:-7.5}
+    VACCIGUARD_CHECKPOINT_INTERVAL_MS: ${VACCIGUARD_CHECKPOINT_INTERVAL_MS:-30000}
+    VACCIGUARD_KINESIS_INITIAL_POSITION: ${VACCIGUARD_KINESIS_INITIAL_POSITION:-LATEST}
+    VACCIGUARD_FLINK_PARALLELISM: ${VACCIGUARD_FLINK_PARALLELISM:-1}
   volumes:
     - "${HOME}/.aws:/root/.aws:ro"
-    - ".:/app"                         # mount code live — no rebuild needed for Python changes
+    - ".:/app"
 
 services:
-
-  # ── Flink pipeline (long-running consumer) ───────────────────────────────
   flink-pipeline:
-    build: .
-    <<: *aws-env
+    build:
+      context: .
+    <<: *local-runtime
     command: python flink/pipeline.py
     restart: unless-stopped
 
-  # ── Simulator (one-shot producer) ────────────────────────────────────────
   simulator:
-    build: .
-    <<: *aws-env
+    build:
+      context: .
+    <<: *local-runtime
     command: python simulator/simulator.py

@@ -1,46 +1,88 @@
-# VacciGuard — Team Setup Guide
+# VacciGuard Setup Guide
 
-## What We Have Built (Phase 4 Complete)
+This guide is written for someone who is new to cloud deployment and wants to set up and run the VacciGuard baseline pipeline on AWS.
 
-VacciGuard is a real-time monitoring pipeline for vaccine refrigerators across India.
+## What You Are Setting Up
 
-**Current working flow:**
+You will create and run a simple cloud pipeline with this flow:
+
+```text
+Simulator -> Amazon Kinesis -> Apache Flink -> Amazon DynamoDB
 ```
-Python Simulator → Amazon Kinesis → Apache Flink (PyFlink) → Amazon DynamoDB
+
+In this project:
+- the simulator sends test fridge data
+- Amazon Kinesis receives the streaming data
+- Apache Flink processes the incoming records
+- Amazon DynamoDB stores the processed records
+
+The baseline pipeline runs on AWS using ECS/Fargate.
+
+## Before You Start
+
+You need:
+
+| Requirement | Why you need it |
+|---|---|
+| AWS account | To create and run cloud resources |
+| AWS CLI installed | To create AWS resources from the terminal |
+| Docker Desktop installed | To build the container image |
+| Git installed | To clone the project |
+
+You should also know your AWS region. This project uses:
+
+```bash
+ap-south-1
 ```
 
-- **Simulator** generates mock telemetry for 500 fridge units (temperature, door status, battery, location)
-- **Kinesis** acts as the real-time ingestion stream
-- **PyFlink** consumes the stream and processes each record
-- **DynamoDB** stores every record with composite key `fridge_id + timestamp`
+## Step 1 - Configure AWS CLI
 
-**Verified working on AWS (ap-south-1) on 26 March 2026.**
+Run:
 
----
-
-## Prerequisites
-
-Install the following on your machine before starting:
-
-| Tool | Purpose | Download |
-|---|---|---|
-| Docker Desktop | Runs the pipeline in a container | https://www.docker.com/products/docker-desktop |
-| AWS CLI | Manage AWS resources from terminal | https://aws.amazon.com/cli/ |
-| Git | Clone the repo | https://git-scm.com/ |
-
----
-
-## Step 1 — AWS Setup
-
-You need two AWS resources created in **ap-south-1 (Mumbai)**. Run these commands once.
-
-**Configure AWS CLI with your credentials:**
 ```bash
 aws configure
-# Enter your Access Key ID, Secret Access Key, region: ap-south-1, output: json
 ```
 
-**Create the Kinesis stream:**
+When asked, enter:
+- your AWS Access Key ID
+- your AWS Secret Access Key
+- default region: `ap-south-1`
+- default output format: `json`
+
+To confirm it works:
+
+```bash
+aws sts get-caller-identity
+```
+
+If this command returns your AWS account details, your AWS CLI is ready.
+
+## Step 2 - Clone the Project
+
+```bash
+git clone https://github.com/Tanish520/vacciguard.git
+cd vacciguard
+```
+
+## Step 3 - Build the Project Locally
+
+Run:
+
+```bash
+bash setup.sh
+```
+
+This script will:
+- check Docker
+- check AWS CLI
+- verify your AWS login works
+- download the required Kinesis connector JAR
+- build the Docker image
+
+## Step 4 - Create the AWS Resources
+
+Create the Kinesis stream:
+
 ```bash
 aws kinesis create-stream \
   --stream-name vacciguard-stream \
@@ -48,87 +90,97 @@ aws kinesis create-stream \
   --region ap-south-1
 ```
 
-**Create the DynamoDB table:**
+Create the DynamoDB table:
+
 ```bash
 aws dynamodb create-table \
   --table-name VacciguardFridgeState \
   --attribute-definitions \
-      AttributeName=fridge_id,AttributeType=S \
-      AttributeName=timestamp,AttributeType=S \
+    AttributeName=fridge_id,AttributeType=S \
+    AttributeName=timestamp,AttributeType=S \
   --key-schema \
-      AttributeName=fridge_id,KeyType=HASH \
-      AttributeName=timestamp,KeyType=RANGE \
+    AttributeName=fridge_id,KeyType=HASH \
+    AttributeName=timestamp,KeyType=RANGE \
   --billing-mode PAY_PER_REQUEST \
   --region ap-south-1
 ```
 
-**Verify both are ACTIVE before continuing:**
+Wait until both are ready:
+
 ```bash
-aws kinesis describe-stream-summary --stream-name vacciguard-stream --region ap-south-1
-aws dynamodb describe-table --table-name VacciguardFridgeState --region ap-south-1
+aws kinesis wait stream-exists \
+  --stream-name vacciguard-stream \
+  --region ap-south-1
+
+aws dynamodb wait table-exists \
+  --table-name VacciguardFridgeState \
+  --region ap-south-1
 ```
 
-Both should show `"StreamStatus": "ACTIVE"` and `"TableStatus": "ACTIVE"`.
+You can also verify manually:
 
----
-
-## Step 2 — Clone and Setup
-
-**Clone the repo:**
 ```bash
-git clone https://github.com/Tanish520/vacciguard.git
-cd vacciguard
+aws kinesis describe-stream-summary \
+  --stream-name vacciguard-stream \
+  --region ap-south-1
+
+aws dynamodb describe-table \
+  --table-name VacciguardFridgeState \
+  --region ap-south-1
 ```
 
-**Run the one-time setup script:**
+Both should show `ACTIVE`.
 
-Mac / Linux / Windows WSL:
+## Step 5 - Deploy the Baseline Pipeline to AWS
+
+Run:
+
 ```bash
-chmod +x setup.sh
-./setup.sh
+cd /Users/tanishgupta/Desktop/VACCIGUARD
+export AWS_DEFAULT_REGION=ap-south-1
+export VACCIGUARD_ENABLE_ALERTS=false
+bash infra/ecs/deploy.sh
 ```
 
-Windows Git Bash:
+What this does:
+- pushes the image to Amazon ECR
+- creates or updates the ECS cluster
+- creates or updates the ECS pipeline service
+- starts the baseline pipeline on AWS
+
+## Step 6 - Run the Simulator on AWS
+
+After the pipeline is deployed, run:
+
 ```bash
-bash setup.sh
+cd /Users/tanishgupta/Desktop/VACCIGUARD
+bash infra/ecs/run_simulator.sh
 ```
 
-The setup script will:
-1. Verify Docker and AWS CLI are installed
-2. Verify your AWS credentials work
-3. Download the Kinesis connector JAR (~63MB) — this is required by PyFlink and excluded from git due to size
-4. Build the Docker images (~5 minutes on first run, cached after that)
+This starts a one-time simulator task in AWS that sends records into Kinesis.
 
----
+## Step 7 - Verify the Pipeline
 
-## Step 3 — Run the Pipeline
+### Check ECS
 
-**Terminal 1 — Start the Flink pipeline (keep this running):**
-```bash
-docker compose up flink-pipeline
-```
+In AWS Console:
+- open ECS
+- open cluster `vacciguard-cluster`
+- check that service `vacciguard-flink-pipeline` is running
 
-Wait until you see:
-```
-[pipeline] Starting VacciGuard Flink job ...
-[pipeline]   Source  : Kinesis stream 'vacciguard-stream' (ap-south-1)
-[pipeline]   Sink    : DynamoDB table 'VacciguardFridgeState'
-```
+### Check CloudWatch Logs
 
-**Terminal 2 — Send 500 test records:**
-```bash
-docker compose run --rm simulator
-```
+Look at these log groups:
+- `/ecs/vacciguard/flink-pipeline`
+- `/ecs/vacciguard/simulator`
 
-Expected output:
-```
-[simulator] Sending 500 records to 'vacciguard-stream' ...
-[simulator] Done. 500/500 records successfully sent.
-```
+You should see:
+- pipeline startup logs
+- simulator sending records
 
----
+### Check DynamoDB
 
-## Step 4 — Verify Data in DynamoDB
+Run:
 
 ```bash
 aws dynamodb scan \
@@ -137,71 +189,82 @@ aws dynamodb scan \
   --max-items 5
 ```
 
-You should see items like:
-```json
-{
-  "fridge_id": "VCF-0042",
-  "timestamp": "2026-03-26T08:47:15Z",
-  "temperature": "7.8",
-  "door_open": false,
-  "battery_level": 91,
-  "location": "Rohini-PHC",
-  "district": "North-West-Delhi",
-  "state": "Delhi"
-}
+If you see records, the pipeline is working.
+
+## Optional Step - Enable Phase 5 Alerts
+
+Only do this if you want to test alerting.
+
+Create the SNS FIFO topic:
+
+```bash
+aws sns create-topic \
+  --name vacciguard-alerts.fifo \
+  --attributes FifoTopic=true,ContentBasedDeduplication=false \
+  --region ap-south-1
 ```
 
-If items appear — the pipeline is working end-to-end.
+Then set:
 
----
-
-## Windows-Specific Notes
-
-- `--platform=linux/amd64` is set in the Dockerfile. On Windows (WSL2/Docker Desktop), `linux/amd64` is the native platform — no emulation, no warnings, faster builds.
-- Run all commands in **Git Bash**, **WSL**, or **PowerShell** with Docker Desktop running in the background.
-- If Docker Desktop is not running, all `docker` commands will fail.
-
----
-
-## Project Structure
-
-```
-vacciguard/
-├── config.py                          # Shared constants (stream name, table name, region)
-├── requirements.txt                   # Python dependencies
-├── simulator/
-│   └── simulator.py                   # Generates mock fridge telemetry → Kinesis
-├── flink/
-│   └── pipeline.py                    # PyFlink job: Kinesis → DynamoDB
-├── lib/
-│   └── flink-sql-connector-kinesis-4.3.0-1.18.jar   # Downloaded by setup.sh
-├── Dockerfile                         # Linux/amd64 container with Java 17 + PyFlink
-├── docker-compose.yml                 # Two services: flink-pipeline + simulator
-├── setup.sh                           # One-time setup script
-└── SETUP.md                           # This file
+```bash
+export VACCIGUARD_SNS_ALERT_TOPIC_ARN='arn:aws:sns:ap-south-1:<account-id>:vacciguard-alerts.fifo'
+export VACCIGUARD_ENABLE_ALERTS=true
 ```
 
----
+Then redeploy:
 
-## Fridge Telemetry Schema
+```bash
+bash infra/ecs/deploy.sh
+```
 
-Every record in DynamoDB follows this exact schema:
+## How To Start Again From Scratch
 
-| Field | Type | Example |
-|---|---|---|
-| `fridge_id` | String (PK) | VCF-0042 |
-| `timestamp` | String (SK) | 2026-03-26T09:00:10Z |
-| `temperature` | String | 7.8 |
-| `door_open` | Boolean | false |
-| `battery_level` | Number | 91 |
-| `location` | String | Rohini-PHC |
-| `district` | String | North-West-Delhi |
-| `state` | String | Delhi |
+If you deleted the service, cluster, Kinesis stream, or DynamoDB table, repeat:
+1. create Kinesis
+2. create DynamoDB
+3. wait until they are active
+4. run `bash infra/ecs/deploy.sh`
+5. run `bash infra/ecs/run_simulator.sh`
 
----
+## How To Stop and Reduce Cost
 
-## What's Coming Next (Phase 5)
+To stop the pipeline service:
 
-- Breach detection: flag records where `temperature > 8.0°C` or `door_open == true`
-- SNS alerts for breach events
-- S3 cold storage sink
+```bash
+aws ecs update-service \
+  --cluster vacciguard-cluster \
+  --service vacciguard-flink-pipeline \
+  --desired-count 0 \
+  --region ap-south-1
+```
+
+To reduce the main runtime cost after you finish:
+
+```bash
+aws ecs update-service \
+  --cluster vacciguard-cluster \
+  --service vacciguard-flink-pipeline \
+  --desired-count 0 \
+  --region ap-south-1
+
+aws kinesis delete-stream \
+  --stream-name vacciguard-stream \
+  --region ap-south-1
+
+aws dynamodb delete-table \
+  --table-name VacciguardFridgeState \
+  --region ap-south-1
+```
+
+## Beginner Summary
+
+If you want the shortest possible setup flow, do this:
+
+1. `aws configure`
+2. `git clone ...`
+3. `bash setup.sh`
+4. create Kinesis
+5. create DynamoDB
+6. `bash infra/ecs/deploy.sh`
+7. `bash infra/ecs/run_simulator.sh`
+8. verify DynamoDB

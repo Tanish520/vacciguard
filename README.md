@@ -1,236 +1,134 @@
-# VacciGuard — Real-Time Vaccine Cold Chain Monitor
+# VacciGuard
 
-> CSG527 Cloud Computing — BITS Pilani Hyderabad Campus, 2025-26 S2
-> Deadline: 19 April 2026
+Real-time vaccine cold-chain monitoring pipeline for cloud-based research and performance evaluation.
 
----
+## Overview
 
-## The Problem
+VacciGuard simulates vaccine refrigerator telemetry, streams it through Amazon Kinesis, processes it with Apache Flink, and stores the resulting records in Amazon DynamoDB.
 
-India administers over 400 million vaccine doses annually. Every dose must be stored between **2°C and 8°C**. A single refrigerator failure can silently destroy thousands of doses before anyone notices.
-
-VacciGuard is a real-time cloud-native data pipeline that monitors **27,000 vaccine refrigerators** across India. It detects temperature breaches, door-open events, and battery failures — and alerts district health officers within 5 seconds.
-
----
+The current project focus is to maintain a stable baseline pipeline deployed on AWS, measure its performance under different conditions, and later compare it with an optimized cloud deployment.
 
 ## Architecture
 
-```
-┌─────────────────────┐
-│   Python Simulator  │  Generates mock telemetry for 27,000 fridges
-│   simulator.py      │  (temperature, door, battery, location)
-└────────┬────────────┘
-         │ boto3 PutRecords
-         ▼
-┌─────────────────────┐
-│   Amazon Kinesis    │  Real-time ingestion stream
-│   vacciguard-stream │  Region: ap-south-1
-│   (1 shard)         │
-└────────┬────────────┘
-         │ FlinkKinesisConsumer
-         ▼
-┌─────────────────────┐
-│   Apache Flink      │  Stream processing (PyFlink 1.18)
-│   pipeline.py       │  Runs in Docker container
-│                     │  ├── Breach detection (Phase 5)
-│                     │  ├── Enrichment (Phase 5)
-│                     │  └── Alert routing (Phase 5)
-└────────┬────────────┘
-         │ boto3 PutItem
-         ▼
-┌─────────────────────┐
-│   Amazon DynamoDB   │  Hot storage — latest fridge state
-│   VacciguardFridge  │  Composite key: fridge_id + timestamp
-│   State             │
-└─────────────────────┘
-
-         (Future phases)
-         ▼
-┌─────────────────────┐     ┌──────────────────┐     ┌─────────────┐
-│   Amazon S3         │────▶│   AWS Glue       │────▶│   Athena    │
-│   Cold storage      │     │   ETL + Catalog  │     │   Reports   │
-│   (Parquet)         │     └──────────────────┘     └─────────────┘
-└─────────────────────┘
-
-┌─────────────────────┐
-│   Amazon SNS        │  SMS alerts to duty officers on breach
-└─────────────────────┘
+```text
+Simulator -> Amazon Kinesis -> Apache Flink -> Amazon DynamoDB
+                                   \
+                                    -> Amazon SNS (optional Phase 5 alerts)
 ```
 
----
+## What Has Been Achieved
 
-## Phase Status
+- Built an end-to-end baseline pipeline for fridge telemetry.
+- Verified simulator-to-Kinesis ingestion.
+- Verified cloud-based Flink processing.
+- Verified successful writes into DynamoDB.
+- Added an AWS ECS/Fargate deployment path for the baseline pipeline.
+- Added an AWS ECS/Fargate one-off simulator run path.
+- Kept Phase 5 alert support configurable without changing the baseline flow.
+
+## Baseline Pipeline
+
+The baseline pipeline serves as the reference implementation for the project. It is the system against which future optimized versions will be evaluated during performance analysis.
+
+The baseline includes the following components:
+
+- **Simulator**: generates refrigerator telemetry records containing temperature, door status, battery level, location, district, state, and timestamp.
+- **Amazon Kinesis**: acts as the real-time ingestion layer for incoming telemetry events.
+- **Apache Flink**: performs stream consumption, input validation, and baseline event processing.
+- **Amazon DynamoDB**: stores the processed refrigerator records for downstream inspection and analysis.
+- **Amazon SNS**: publishes alert notifications when breach conditions are detected.
+- **AWS ECS/Fargate**: hosts both the baseline pipeline service and the simulator in the cloud.
+
+Functionally, the baseline pipeline:
+
+- ingests real-time telemetry data
+- processes events in the cloud
+- stores processed records in DynamoDB
+- evaluates breach conditions such as temperature greater than `8.0C` and `door_open == true`
+- publishes SNS alerts for detected breach events
+
+The baseline is intentionally kept stable and consistent so that later optimization results can be compared against a fixed cloud-deployed reference system.
+
+## Current Status
 
 | Phase | Description | Status |
 |---|---|---|
-| Phase 4 | Simulator → Kinesis → PyFlink → DynamoDB | ✅ Complete (2026-03-26) |
-| Phase 5 | Breach detection + SNS alerts | 🔄 Next |
-| Phase 6 | S3 cold storage + Glue + Athena | ⏳ Planned |
-| Phase 7 | EKS deployment + Terraform | ⏳ Planned |
-| Phase 8 | Auto-scaling experiments (predictive vs reactive) | ⏳ Planned |
-
----
-
-## Tech Stack
-
-| Component | Technology | Purpose |
-|---|---|---|
-| Data source | Python + boto3 | Simulates 27,000 fridge telemetry records |
-| Ingestion | Amazon Kinesis | Real-time stream ingestion |
-| Stream processing | Apache Flink (PyFlink 1.18) | Consumes stream, detects breaches |
-| Hot storage | Amazon DynamoDB | Stores latest fridge state per event |
-| Cold storage | Amazon S3 (Parquet) | Long-term data lake |
-| Batch processing | AWS Glue + Athena | Nightly compliance reports |
-| Orchestration | Amazon MWAA (Airflow) | Schedules batch jobs |
-| Alerts | Amazon SNS | SMS to duty officers on breach |
-| Monitoring | CloudWatch + Grafana | Pipeline observability |
-| Infra as Code | Terraform | All AWS resources |
-| Container | Docker (linux/amd64) | Consistent environment across all OS |
-| AWS Region | ap-south-1 (Mumbai) | Closest to India operations |
-
----
-
-## File Structure
-
-```
-vacciguard/
-│
-├── config.py                        # Shared constants — ALWAYS import from here
-│                                    # Never hardcode stream names, table names, or region
-│
-├── requirements.txt                 # Python dependencies (boto3, apache-flink, etc.)
-│
-├── simulator/
-│   └── simulator.py                 # Generates 500 mock fridge records
-│                                    # Pushes to Kinesis using boto3 PutRecords
-│                                    # PartitionKey = fridge_id
-│
-├── flink/
-│   └── pipeline.py                  # PyFlink job: reads Kinesis → writes DynamoDB
-│                                    # DynamoDBSink: composite key fridge_id + timestamp
-│                                    # Add breach detection here in Phase 5
-│
-├── lib/
-│   └── flink-sql-connector-         # Kinesis connector JAR for PyFlink
-│       kinesis-4.3.0-1.18.jar       # NOT in git (63MB) — downloaded by setup.sh
-│
-├── Dockerfile                       # Container: eclipse-temurin:17-jdk + Python + PyFlink
-│                                    # Uses linux/amd64 for prebuilt wheel compatibility
-│
-├── docker-compose.yml               # Two services:
-│                                    # flink-pipeline — long-running Flink job
-│                                    # simulator      — one-shot data producer
-│
-├── setup.sh                         # ONE-TIME setup script for all teammates
-│                                    # Downloads JAR, builds Docker images
-│
-├── SETUP.md                         # Full step-by-step setup guide for teammates
-│                                    # Includes AWS resource creation commands
-│
-└── README.md                        # This file
-```
-
----
-
-## Quick Start
-
-**Full setup guide → see [SETUP.md](SETUP.md)**
-
-**Short version:**
-
-```bash
-# 1. Clone
-git clone https://github.com/Tanish520/vacciguard.git
-cd vacciguard
-
-# 2. One-time setup (downloads JAR + builds Docker images)
-bash setup.sh
-
-# 3. Terminal 1 — start the pipeline
-docker compose up flink-pipeline
-
-# 4. Terminal 2 — send test data
-docker compose run --rm simulator
-
-# 5. Verify — check DynamoDB
-aws dynamodb scan --table-name VacciguardFridgeState --region ap-south-1 --max-items 5
-```
-
----
-
-## Fridge Telemetry Schema
-
-Every record produced by the simulator and stored in DynamoDB:
-
-```json
-{
-  "fridge_id":     "VCF-0042",
-  "temperature":   7.8,
-  "door_open":     false,
-  "battery_level": 91,
-  "location":      "Rohini-PHC",
-  "district":      "North-West-Delhi",
-  "state":         "Delhi",
-  "timestamp":     "2026-03-26T09:00:10Z"
-}
-```
-
-**DynamoDB key schema:**
-- Partition key: `fridge_id` (String)
-- Sort key: `timestamp` (String)
-
----
+| Phase 4 | Simulator -> Kinesis -> Flink -> DynamoDB | Complete |
+| Phase 5 | Breach detection + SNS alerts | Implemented and configurable |
+| Phase 6 | S3 cold storage + Glue + Athena | Planned |
+| Phase 7 | EKS deployment + Terraform | Planned |
+| Phase 8 | Predictive vs reactive auto-scaling experiments | Planned |
 
 ## AWS Resources
 
 | Resource | Name | Region |
 |---|---|---|
-| Kinesis Stream | `vacciguard-stream` | ap-south-1 |
-| DynamoDB Table | `VacciguardFridgeState` | ap-south-1 |
-| S3 Bucket | `vacciguard-data-lake-bits` | ap-south-1 (Phase 6) |
-| SNS Topic | `vacciguard-alerts` | ap-south-1 (Phase 5) |
+| Kinesis stream | `vacciguard-stream` | `ap-south-1` |
+| DynamoDB table | `VacciguardFridgeState` | `ap-south-1` |
+| SNS FIFO topic | `vacciguard-alerts.fifo` | `ap-south-1` |
 
----
+## Quick Start
 
-## Team Structure
+Follow the full setup guide in [SETUP.md](/Users/tanishgupta/Desktop/VACCIGUARD/SETUP.md).
 
-| Role | Owns | Responsibility |
+Main cloud baseline flow:
+
+```bash
+cd /Users/tanishgupta/Desktop/VACCIGUARD
+export AWS_DEFAULT_REGION=ap-south-1
+export VACCIGUARD_ENABLE_ALERTS=false
+bash infra/ecs/deploy.sh
+bash infra/ecs/run_simulator.sh
+```
+
+Verify results:
+
+```bash
+aws dynamodb scan \
+  --table-name VacciguardFridgeState \
+  --region ap-south-1 \
+  --max-items 5
+```
+
+## Configuration
+
+These environment variables control the baseline and Phase 5 behavior:
+
+| Variable | Purpose | Default |
 |---|---|---|
-| Pipeline Lead | `flink/` | Stream processing, breach detection |
-| Infra Lead | `infra/` | Terraform for all AWS resources |
-| Data Lead | `simulator/`, `batch/` | Fridge data, Glue jobs, Airflow DAG |
-| Research Lead | `monitoring/` | Grafana dashboard, scaling experiments |
+| `VACCIGUARD_ENABLE_ALERTS` | Enable or disable SNS alert publishing | `true` |
+| `VACCIGUARD_SNS_ALERT_TOPIC_ARN` | SNS topic ARN for alert publishing | empty |
+| `VACCIGUARD_BREACH_TEMP_CELSIUS` | Breach temperature threshold | `8.0` |
+| `VACCIGUARD_WARNING_TEMP_CELSIUS` | Warning temperature threshold | `7.5` |
+| `VACCIGUARD_CHECKPOINT_INTERVAL_MS` | Flink checkpoint interval | `30000` |
+| `VACCIGUARD_FLINK_PARALLELISM` | Flink parallelism | `1` |
+| `VACCIGUARD_KINESIS_INITIAL_POSITION` | Stream start position | `LATEST` |
 
-## Branch Structure
+## Deployment
 
+The repository includes a full-cloud ECS/Fargate deployment path:
+
+- [infra/ecs/deploy.sh](/Users/tanishgupta/Desktop/VACCIGUARD/infra/ecs/deploy.sh) deploys the pipeline service
+- [infra/ecs/run_simulator.sh](/Users/tanishgupta/Desktop/VACCIGUARD/infra/ecs/run_simulator.sh) runs the simulator as a one-off task
+- [infra/ecs/README.md](/Users/tanishgupta/Desktop/VACCIGUARD/infra/ecs/README.md) explains the ECS deployment flow
+
+## Repository Structure
+
+```text
+vacciguard/
+├── config.py
+├── requirements.txt
+├── simulator/
+│   └── simulator.py
+├── flink/
+│   └── pipeline.py
+├── lib/
+│   └── flink-sql-connector-kinesis-4.3.0-1.18.jar
+├── infra/
+│   └── ecs/
+├── Dockerfile
+├── docker-compose.yml
+├── setup.sh
+├── SETUP.md
+└── README.md
 ```
-main                  → always working, never push directly
-yourname-pipeline     → Pipeline Lead
-teammate2-infra       → Infra Lead
-teammate3-data        → Data Lead
-teammate4-research    → Research Lead
-```
-
----
-
-## Coding Rules
-
-1. **Never hardcode** AWS resource names — always import from `config.py`
-2. **Never commit** `.env` files — credentials stay local only
-3. **DynamoDB writes** must use composite key (`fridge_id` + `timestamp`)
-4. **SNS publish** must include `MessageDeduplicationId`
-5. **All Flink time operations** must use EventTime, not ProcessingTime
-6. **Only the Infra Lead** runs `terraform apply`
-
----
-
-## Research Contribution
-
-We compare two auto-scaling strategies on the Flink pipeline:
-
-- **Baseline (reactive):** scales after consumer lag exceeds 5,000ms
-- **Ours (predictive):** pre-scales using Co-WIN vaccination drive schedule
-
-Each experiment runs 5 times. Results reported with mean, std, 95% CI, and t-test.
-
-**Throughput test levels:** 1,000 → 5,000 → 10,000 → 20,000 → 27,000 fridges
