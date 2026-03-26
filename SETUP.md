@@ -177,6 +177,30 @@ Look at these log groups:
 You should see:
 - pipeline startup logs
 - simulator sending records
+- periodic metric summary logs from the pipeline
+
+### Check CloudWatch Metrics
+
+The pipeline also publishes custom metrics to CloudWatch under the namespace:
+
+```bash
+VacciGuard/BaselinePipeline
+```
+
+Useful metrics to inspect:
+- `RecordsProcessedTotal`
+- `RecordsFailedTotal`
+- `BreachEventsTotal`
+- `AlertsPublishedTotal`
+- `DuplicateAlertsTotal`
+- `SlaViolationsTotal`
+- `ThroughputRecordsPerSecond`
+- `DynamoDbLatencyP50Ms`
+- `DynamoDbLatencyP90Ms`
+- `DynamoDbLatencyP99Ms`
+- `AlertLatencyP50Ms`
+- `AlertLatencyP90Ms`
+- `AlertLatencyP99Ms`
 
 ### Check DynamoDB
 
