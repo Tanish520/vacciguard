@@ -1,0 +1,23 @@
+# .dockerignore — keeps the Docker build context lean
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+
+# Git
+.git/
+.gitignore
+
+# Docs / project info (not needed inside the container)
+*.md
+*.pdf
+1_Project Information/
+
+# OS
+.DS_Store

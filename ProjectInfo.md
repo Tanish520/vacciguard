@@ -1,6 +1,11 @@
 # CLAUDE.md — VacciGuard Project Briefing
 # Read this file before answering anything about this codebase.
 
+## Phase Status
+- Phase 4 COMPLETE (2026-03-26): Simulator → Kinesis → PyFlink → DynamoDB working end-to-end on AWS
+- Phase 5 NEXT: Breach detection + SNS alerts
+- Phase 6+: EKS deployment, S3 cold storage, Glue, Athena, auto-scaling experiments
+
 ## What this project is
 VacciGuard is a real-time cloud data pipeline that monitors 27,000 vaccine
 refrigerators across India. It detects temperature breaches above 8°C and
@@ -8,9 +13,9 @@ alerts district health officers via SMS within 5 seconds.
 Course: CSG527 Cloud Computing — BITS Pilani Hyderabad Campus, 2025-26 S2.
 Deadline: 19th April 2026.
 
-## Tech stack (AWS, region us-east-1)
-- Data source:    Python simulator (boto3) → Amazon Kinesis (3 shards)
-- Stream process: Apache Flink (PyFlink) on Amazon EKS
+## Tech stack (AWS, region ap-south-1)
+- Data source:    Python simulator (boto3) → Amazon Kinesis (1 shard, provisioned)
+- Stream process: Apache Flink (PyFlink 1.18) in Docker locally — EKS deployment is Phase 6+
 - Hot storage:    Amazon DynamoDB — composite key: fridge_id + timestamp
 - Cold storage:   Amazon S3 — Parquet, partitioned by state/district/date
 - Batch:          AWS Glue + Athena — nightly compliance report at 6am
@@ -19,16 +24,24 @@ Deadline: 19th April 2026.
 - Monitoring:     CloudWatch + Grafana
 - Infra as Code:  Terraform (infra/main.tf)
 
+## Moving from local Docker to EKS (Phase 6+)
+The Python code (pipeline.py, simulator.py, config.py) does NOT change.
+Only the infrastructure changes:
+1. Push Docker image to ECR
+2. Write Kubernetes deployment YAML pointing at the ECR image
+3. Replace ~/.aws volume mount with an IAM Role attached to the EKS Pod
+The --platform=linux/amd64 flag can be removed on EKS (native x86 nodes).
+
 ## Shared constants — always import from config.py, never hardcode
 - KINESIS_STREAM_NAME   = "vacciguard-stream"
 - DYNAMO_TABLE_NAME     = "VacciguardFridgeState"
 - DYNAMO_METADATA_TABLE = "VacciguardFridgeMetadata"
 - S3_BUCKET_NAME        = "vacciguard-data-lake-bits"
-- SNS_ALERT_TOPIC_ARN   = "arn:aws:sns:us-east-1:ACCOUNT_ID:vacciguard-alerts"
+- SNS_ALERT_TOPIC_ARN   = "arn:aws:sns:ap-south-1:ACCOUNT_ID:vacciguard-alerts"
 - BREACH_TEMP_CELSIUS   = 8.0
 - WARNING_TEMP_CELSIUS  = 7.5
 - CHECKPOINT_INTERVAL_MS = 30000
-- REGION                = "us-east-1"
+- REGION                = "ap-south-1"
 
 ## Processing semantics — effectively-once (NOT exactly-once)
 1. Flink checkpoints to S3 every 30 seconds
@@ -90,10 +103,21 @@ Run each experiment 5 times. Compute mean, std, 95% CI, t-test.
 2. Predictive vs reactive scaling during vaccination drive surge (5 runs each)
 3. Fault recovery: kill one Flink worker, measure recovery time + data integrity
 
-## How to run locally
-cd simulator && python3 simulator.py        # start fridge data flow
-cd flink && python3 pipeline.py             # start stream processing
-aws kinesis list-streams --region us-east-1 # check Kinesis
+## How to run (Docker — required)
+# One-time setup (downloads Kinesis JAR + builds images)
+bash setup.sh
+
+# Terminal 1 — start the Flink pipeline
+docker compose up flink-pipeline
+
+# Terminal 2 — send 500 test records
+docker compose run --rm simulator
+
+# Verify data arrived in DynamoDB
+aws dynamodb scan --table-name VacciguardFridgeState --region ap-south-1 --max-items 5
+
+# Note: pipeline.py and simulator.py cannot be run directly with python3.
+# They must run inside the Docker container (PyFlink requires Java + the Kinesis JAR).
 
 ## Files that must exist before coding starts
 - config.py          shared AWS resource names (no secrets)
