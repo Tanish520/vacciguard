@@ -1,0 +1,22 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# JAR files — too large for git, downloaded by setup.sh
+lib/*.jar
+
+# Internal files — not for teammates
+Claude.md
+ProjectInfo.md
+1_Project Information/
+
+# AWS credentials — never commit these
+.env
+*.env
+
+# OS
+.DS_Store
+Thumbs.db

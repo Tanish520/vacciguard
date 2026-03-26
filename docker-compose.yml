@@ -1,0 +1,35 @@
+# docker-compose.yml — VacciGuard local dev stack
+#
+# Services:
+#   flink-pipeline  — reads from Kinesis, writes to DynamoDB (always running)
+#   simulator       — pushes mock fridge records to Kinesis (runs once and exits)
+#
+# Usage:
+#   Start pipeline only  : docker compose up flink-pipeline
+#   Run full flow        : docker compose up
+#   Send data only       : docker compose run --rm simulator
+#
+# AWS credentials are read from your host machine's ~/.aws directory.
+# No secrets are hardcoded here.
+
+x-aws-env: &aws-env
+  environment:
+    - AWS_DEFAULT_REGION=ap-south-1
+  volumes:
+    - "${HOME}/.aws:/root/.aws:ro"
+    - ".:/app"                         # mount code live — no rebuild needed for Python changes
+
+services:
+
+  # ── Flink pipeline (long-running consumer) ───────────────────────────────
+  flink-pipeline:
+    build: .
+    <<: *aws-env
+    command: python flink/pipeline.py
+    restart: unless-stopped
+
+  # ── Simulator (one-shot producer) ────────────────────────────────────────
+  simulator:
+    build: .
+    <<: *aws-env
+    command: python simulator/simulator.py
