@@ -16,11 +16,12 @@ The pipeline should avoid using more compute or storage than needed, especially 
 ### Storage Efficiency
 - `S3` provides lower-cost long-term storage for historical data.
 - `Parquet` reduces storage size and improves analytical efficiency compared with plain text formats.
-- `Redis` is used only for hot operational state, not long-term history.
+- `ElastiCache Redis` is used only for hot operational state, not long-term history.
 
 ### Architectural Efficiency
 - using one main processing engine keeps the platform smaller
 - fewer always-on components reduce unnecessary overhead
+- keeping the hot store limited to Redis-style live state avoids turning it into a larger operational database design
 
 ## How We Will Measure It
 If exact billing is available, we will use:
