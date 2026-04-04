@@ -25,9 +25,13 @@ VacciGuard is a cloud data pipeline case study for vaccine cold-chain monitoring
 
 ## Repository Layout
 
-- `Project info/phase-1-problem-statement.md`: project definition, scope, and success metrics
-- `Project info/phase-2-conceptual-pipeline.md`: conceptual hybrid architecture and data flow
-- `Project info/dataset-plan.md`: the three-dataset plan for stream, lookup, and batch inputs
+- [Project Planning/01-foundation/phase-1-problem-statement.md](/Users/tanishgupta/Desktop/vacciguard/Project%20Planning/01-foundation/phase-1-problem-statement.md): project definition, scope, and success metrics
+- [Project Planning/01-foundation/phase-2-conceptual-pipeline.md](/Users/tanishgupta/Desktop/vacciguard/Project%20Planning/01-foundation/phase-2-conceptual-pipeline.md): conceptual hybrid architecture and data flow
+- [Project Planning/01-foundation/dataset-plan.md](/Users/tanishgupta/Desktop/vacciguard/Project%20Planning/01-foundation/dataset-plan.md): the three-dataset plan for stream, lookup, and batch inputs
+- [Project Planning/02-phase-3/phase-3-technology-stack.md](/Users/tanishgupta/Desktop/vacciguard/Project%20Planning/02-phase-3/phase-3-technology-stack.md): locked technology stack and rationale
+- [Project Planning/02-phase-3/phase-3-objective-mapping.md](/Users/tanishgupta/Desktop/vacciguard/Project%20Planning/02-phase-3/phase-3-objective-mapping.md): how the stack covers the professor's objectives
+- [Project Planning/02-phase-3/non-functional-requirements/README.md](/Users/tanishgupta/Desktop/vacciguard/Project%20Planning/02-phase-3/non-functional-requirements/README.md): separate non-functional requirement notes
+- [Project Planning/03-architecture/vacciguard-architecture-overview.html](/Users/tanishgupta/Desktop/vacciguard/Project%20Planning/03-architecture/vacciguard-architecture-overview.html): colorful visual overview of the architecture and system working flow
 
 ## Current Status
 
