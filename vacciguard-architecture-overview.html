@@ -1,0 +1,1267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VacciGuard Architecture Overview</title>
+  <style>
+    :root {
+      --bg: #f4efe4;
+      --paper: rgba(255, 251, 243, 0.92);
+      --ink: #173140;
+      --muted: #5f7280;
+      --line: rgba(23, 49, 64, 0.12);
+      --teal: #1f8a70;
+      --teal-soft: #d8f2eb;
+      --amber: #f0b44c;
+      --amber-soft: #fff2d4;
+      --coral: #e76f51;
+      --coral-soft: #ffe5de;
+      --sky: #4f8db9;
+      --sky-soft: #dfeffc;
+      --olive: #7a9346;
+      --olive-soft: #eaf2d6;
+      --navy: #22465d;
+      --shadow: 0 24px 50px rgba(23, 49, 64, 0.12);
+      --radius-xl: 30px;
+      --radius-lg: 22px;
+      --radius-md: 16px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      font-family: "Avenir Next", "Trebuchet MS", "Segoe UI", sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at top left, rgba(31, 138, 112, 0.14), transparent 28%),
+        radial-gradient(circle at top right, rgba(240, 180, 76, 0.16), transparent 26%),
+        linear-gradient(180deg, #f8f4eb 0%, #f2ecde 100%);
+      min-height: 100vh;
+    }
+
+    .page {
+      width: min(1220px, calc(100% - 32px));
+      margin: 24px auto 48px;
+    }
+
+    .hero {
+      position: relative;
+      overflow: hidden;
+      background:
+        linear-gradient(135deg, rgba(34, 70, 93, 0.95), rgba(31, 138, 112, 0.9)),
+        linear-gradient(180deg, #204051, #1f8a70);
+      color: #fdfcf8;
+      border-radius: 34px;
+      padding: 34px;
+      box-shadow: var(--shadow);
+    }
+
+    .hero::after {
+      content: "";
+      position: absolute;
+      inset: auto -80px -120px auto;
+      width: 320px;
+      height: 320px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(255, 255, 255, 0.18), transparent 68%);
+      pointer-events: none;
+    }
+
+    .eyebrow {
+      margin: 0 0 10px;
+      font-size: 0.82rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: rgba(253, 252, 248, 0.8);
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(2rem, 4vw, 3.35rem);
+      line-height: 1.02;
+      max-width: 12ch;
+    }
+
+    .hero p {
+      margin: 14px 0 0;
+      max-width: 62ch;
+      color: rgba(253, 252, 248, 0.84);
+      font-size: 1.02rem;
+      line-height: 1.65;
+    }
+
+    .hero-grid {
+      display: grid;
+      grid-template-columns: 1.55fr 1fr;
+      gap: 22px;
+      align-items: end;
+    }
+
+    .hero-badges {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .hero-badge {
+      background: rgba(255, 255, 255, 0.12);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      backdrop-filter: blur(8px);
+      border-radius: 20px;
+      padding: 16px;
+    }
+
+    .hero-badge strong {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 1rem;
+    }
+
+    .hero-badge span {
+      color: rgba(253, 252, 248, 0.78);
+      font-size: 0.92rem;
+      line-height: 1.45;
+    }
+
+    .toc {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin: 22px 0 0;
+    }
+
+    .toc a {
+      text-decoration: none;
+      color: #fffaf1;
+      background: rgba(255, 255, 255, 0.14);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      padding: 10px 14px;
+      border-radius: 999px;
+      font-size: 0.92rem;
+    }
+
+    .panel {
+      margin-top: 22px;
+      background: var(--paper);
+      border: 1px solid rgba(255, 255, 255, 0.8);
+      border-radius: var(--radius-xl);
+      padding: 28px;
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(10px);
+    }
+
+    .section-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: start;
+      margin-bottom: 22px;
+    }
+
+    .section-head h2 {
+      margin: 0 0 8px;
+      font-size: clamp(1.55rem, 2vw, 2.25rem);
+    }
+
+    .section-head p {
+      margin: 0;
+      color: var(--muted);
+      max-width: 68ch;
+      line-height: 1.6;
+    }
+
+    .pill-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-self: center;
+    }
+
+    .pill {
+      padding: 9px 12px;
+      border-radius: 999px;
+      font-size: 0.86rem;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.72);
+      color: var(--ink);
+      white-space: nowrap;
+    }
+
+    .architecture-board {
+      overflow-x: auto;
+      padding-bottom: 8px;
+    }
+
+    .pipeline {
+      min-width: 1040px;
+      display: grid;
+      grid-template-columns: minmax(180px, 1.1fr) 60px minmax(180px, 1fr) 60px minmax(240px, 1.2fr) 60px minmax(220px, 1.1fr) 60px minmax(180px, 0.95fr);
+      gap: 0;
+      align-items: stretch;
+    }
+
+    .stage {
+      border-radius: var(--radius-lg);
+      padding: 20px;
+      min-height: 100%;
+      border: 1px solid transparent;
+    }
+
+    .stage h3 {
+      margin: 0 0 14px;
+      font-size: 1.15rem;
+    }
+
+    .stage small {
+      display: block;
+      margin-top: 14px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    .stage-list {
+      display: grid;
+      gap: 12px;
+    }
+
+    .node {
+      background: rgba(255, 255, 255, 0.74);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      padding: 14px;
+      box-shadow: 0 10px 24px rgba(23, 49, 64, 0.06);
+    }
+
+    .node strong {
+      display: block;
+      margin-bottom: 4px;
+      font-size: 0.97rem;
+    }
+
+    .node span {
+      color: var(--muted);
+      font-size: 0.88rem;
+      line-height: 1.45;
+    }
+
+    .stage.sources {
+      background: linear-gradient(180deg, rgba(79, 141, 185, 0.16), rgba(79, 141, 185, 0.06));
+      border-color: rgba(79, 141, 185, 0.16);
+    }
+
+    .stage.ingestion {
+      background: linear-gradient(180deg, rgba(240, 180, 76, 0.2), rgba(240, 180, 76, 0.08));
+      border-color: rgba(240, 180, 76, 0.18);
+    }
+
+    .stage.processing {
+      background: linear-gradient(180deg, rgba(31, 138, 112, 0.18), rgba(31, 138, 112, 0.07));
+      border-color: rgba(31, 138, 112, 0.16);
+    }
+
+    .stage.storage {
+      background: linear-gradient(180deg, rgba(122, 147, 70, 0.2), rgba(122, 147, 70, 0.07));
+      border-color: rgba(122, 147, 70, 0.16);
+    }
+
+    .stage.outputs {
+      background: linear-gradient(180deg, rgba(231, 111, 81, 0.18), rgba(231, 111, 81, 0.07));
+      border-color: rgba(231, 111, 81, 0.18);
+    }
+
+    .connector {
+      display: grid;
+      align-content: center;
+      justify-items: center;
+      color: var(--muted);
+      text-align: center;
+      font-size: 0.84rem;
+      gap: 10px;
+    }
+
+    .connector .arrow {
+      width: 100%;
+      height: 2px;
+      background: linear-gradient(90deg, rgba(23, 49, 64, 0.18), rgba(23, 49, 64, 0.5));
+      position: relative;
+    }
+
+    .connector .arrow::after {
+      content: "";
+      position: absolute;
+      right: -1px;
+      top: 50%;
+      width: 12px;
+      height: 12px;
+      border-top: 2px solid rgba(23, 49, 64, 0.5);
+      border-right: 2px solid rgba(23, 49, 64, 0.5);
+      transform: translateY(-50%) rotate(45deg);
+      background: transparent;
+    }
+
+    .control-strip {
+      margin-top: 22px;
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .control-card {
+      border-radius: var(--radius-lg);
+      padding: 18px;
+      background: linear-gradient(180deg, rgba(34, 70, 93, 0.08), rgba(255, 255, 255, 0.76));
+      border: 1px solid var(--line);
+    }
+
+    .control-card strong {
+      display: block;
+      margin-bottom: 8px;
+    }
+
+    .control-card p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.92rem;
+      line-height: 1.55;
+    }
+
+    .component-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 18px;
+    }
+
+    .component-card {
+      border-radius: 26px;
+      padding: 22px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.84);
+      box-shadow: 0 16px 36px rgba(23, 49, 64, 0.08);
+    }
+
+    .component-card h3 {
+      margin: 0 0 8px;
+      font-size: 1.14rem;
+    }
+
+    .component-card p {
+      margin: 0 0 14px;
+      color: var(--muted);
+      line-height: 1.58;
+      font-size: 0.94rem;
+    }
+
+    .mini-label {
+      display: inline-block;
+      margin-bottom: 10px;
+      padding: 7px 10px;
+      border-radius: 999px;
+      font-size: 0.76rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.72);
+      color: var(--ink);
+    }
+
+    .component-card ul {
+      margin: 0;
+      padding-left: 18px;
+      color: var(--muted);
+      line-height: 1.6;
+      font-size: 0.92rem;
+    }
+
+    .component-card li + li {
+      margin-top: 6px;
+    }
+
+    .component-card.teal {
+      background: linear-gradient(180deg, rgba(216, 242, 235, 0.78), rgba(255, 255, 255, 0.9));
+    }
+
+    .component-card.amber {
+      background: linear-gradient(180deg, rgba(255, 242, 212, 0.82), rgba(255, 255, 255, 0.9));
+    }
+
+    .component-card.sky {
+      background: linear-gradient(180deg, rgba(223, 239, 252, 0.82), rgba(255, 255, 255, 0.9));
+    }
+
+    .component-card.coral {
+      background: linear-gradient(180deg, rgba(255, 229, 222, 0.82), rgba(255, 255, 255, 0.9));
+    }
+
+    .component-card.olive {
+      background: linear-gradient(180deg, rgba(234, 242, 214, 0.82), rgba(255, 255, 255, 0.9));
+    }
+
+    .link-grid {
+      margin-top: 18px;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .link-card {
+      border-radius: 24px;
+      padding: 20px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.84);
+    }
+
+    .link-card h3 {
+      margin: 0 0 10px;
+      font-size: 1.08rem;
+    }
+
+    .link-card p {
+      margin: 0 0 12px;
+      color: var(--muted);
+      line-height: 1.58;
+      font-size: 0.93rem;
+    }
+
+    .assist-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .assist-item {
+      padding: 12px 14px;
+      border-radius: 16px;
+      background: rgba(247, 244, 235, 0.76);
+      border: 1px solid rgba(23, 49, 64, 0.08);
+    }
+
+    .assist-item strong {
+      display: block;
+      margin-bottom: 4px;
+      font-size: 0.95rem;
+    }
+
+    .assist-item span {
+      color: var(--muted);
+      line-height: 1.5;
+      font-size: 0.9rem;
+    }
+
+    .flow-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 18px;
+    }
+
+    .flow-card {
+      border-radius: 26px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.82);
+      box-shadow: 0 16px 40px rgba(23, 49, 64, 0.08);
+    }
+
+    .flow-head {
+      padding: 18px 20px;
+      color: var(--ink);
+    }
+
+    .flow-head h3 {
+      margin: 0 0 6px;
+      font-size: 1.18rem;
+    }
+
+    .flow-head p {
+      margin: 0;
+      color: rgba(23, 49, 64, 0.8);
+      line-height: 1.55;
+      font-size: 0.94rem;
+    }
+
+    .flow-card.realtime .flow-head {
+      background: linear-gradient(135deg, var(--teal-soft), rgba(31, 138, 112, 0.08));
+    }
+
+    .flow-card.batch .flow-head {
+      background: linear-gradient(135deg, var(--amber-soft), rgba(240, 180, 76, 0.08));
+    }
+
+    .flow-card.scaling .flow-head {
+      background: linear-gradient(135deg, var(--sky-soft), rgba(79, 141, 185, 0.08));
+    }
+
+    .flow-card.recovery .flow-head {
+      background: linear-gradient(135deg, var(--coral-soft), rgba(231, 111, 81, 0.08));
+    }
+
+    .steps {
+      padding: 18px;
+      display: grid;
+      gap: 12px;
+    }
+
+    .step {
+      display: grid;
+      grid-template-columns: 44px 1fr;
+      gap: 12px;
+      align-items: start;
+      padding: 12px;
+      border-radius: 18px;
+      background: rgba(247, 244, 235, 0.68);
+      border: 1px solid rgba(23, 49, 64, 0.08);
+    }
+
+    .step-index {
+      width: 44px;
+      height: 44px;
+      border-radius: 14px;
+      display: grid;
+      place-items: center;
+      font-weight: 700;
+      color: #fff;
+      box-shadow: 0 10px 22px rgba(23, 49, 64, 0.12);
+    }
+
+    .flow-card.realtime .step-index { background: linear-gradient(135deg, #1f8a70, #2fa68a); }
+    .flow-card.batch .step-index { background: linear-gradient(135deg, #d6962a, #efb34a); }
+    .flow-card.scaling .step-index { background: linear-gradient(135deg, #4f8db9, #72a9d0); }
+    .flow-card.recovery .step-index { background: linear-gradient(135deg, #d65f43, #e98067); }
+
+    .step strong {
+      display: block;
+      margin-bottom: 4px;
+      font-size: 0.96rem;
+    }
+
+    .step span {
+      color: var(--muted);
+      font-size: 0.9rem;
+      line-height: 1.5;
+    }
+
+    .story-panel {
+      margin-top: 18px;
+      display: grid;
+      grid-template-columns: 1.2fr 1fr;
+      gap: 18px;
+    }
+
+    .story-card,
+    .compare-card {
+      border-radius: 26px;
+      padding: 22px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.82);
+    }
+
+    .story-card {
+      background:
+        linear-gradient(135deg, rgba(31, 138, 112, 0.12), transparent 50%),
+        rgba(255, 255, 255, 0.84);
+    }
+
+    .story-card h3,
+    .compare-card h3 {
+      margin: 0 0 10px;
+      font-size: 1.24rem;
+    }
+
+    .story-list,
+    .compare-grid {
+      display: grid;
+      gap: 12px;
+    }
+
+    .story-item,
+    .compare-box {
+      border-radius: 18px;
+      padding: 14px;
+      background: rgba(247, 244, 235, 0.7);
+      border: 1px solid rgba(23, 49, 64, 0.08);
+    }
+
+    .story-item strong,
+    .compare-box strong {
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    .story-item span,
+    .compare-box span {
+      color: var(--muted);
+      line-height: 1.55;
+      font-size: 0.92rem;
+    }
+
+    .compare-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .footer-note {
+      margin-top: 18px;
+      padding: 18px 20px;
+      border-radius: 22px;
+      background: linear-gradient(135deg, rgba(34, 70, 93, 0.08), rgba(255, 255, 255, 0.82));
+      border: 1px solid var(--line);
+      color: var(--muted);
+      line-height: 1.65;
+    }
+
+    @media (max-width: 980px) {
+      .hero-grid,
+      .component-grid,
+      .link-grid,
+      .flow-grid,
+      .story-panel,
+      .control-strip,
+      .compare-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .section-head {
+        flex-direction: column;
+      }
+
+      .pill-row {
+        align-self: stretch;
+      }
+    }
+
+    @media (max-width: 720px) {
+      .page {
+        width: min(100% - 20px, 1220px);
+        margin-top: 12px;
+      }
+
+      .hero,
+      .panel {
+        padding: 20px;
+        border-radius: 24px;
+      }
+
+      .hero-badges {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="hero">
+      <div class="hero-grid">
+        <div>
+          <p class="eyebrow">Cloud Data Pipeline Blueprint</p>
+          <h1>VacciGuard Architecture and Working Flow</h1>
+          <p>
+            A single visual overview that shows both the complete project architecture and the
+            end-to-end system behavior. This page is designed to be easy to scan in a demo,
+            report discussion, or project review.
+          </p>
+          <nav class="toc">
+            <a href="#architecture">Architecture View</a>
+            <a href="#components">Component Guide</a>
+            <a href="#working-flow">How The System Works</a>
+            <a href="#story">Full Story</a>
+          </nav>
+        </div>
+        <div class="hero-badges">
+          <div class="hero-badge">
+            <strong>Unified Pipeline</strong>
+            <span>One system supports both real-time telemetry and scheduled batch analytics.</span>
+          </div>
+          <div class="hero-badge">
+            <strong>Elastic Design</strong>
+            <span>Kafka, KEDA, HPA, and Spark dynamic allocation support workload-aware scaling.</span>
+          </div>
+          <div class="hero-badge">
+            <strong>Operational + Historical</strong>
+            <span>Redis serves live state while S3 and Parquet preserve analysis-ready history.</span>
+          </div>
+          <div class="hero-badge">
+            <strong>Evaluation Ready</strong>
+            <span>Prometheus, Grafana, Airflow, and Terraform support controlled benchmarking.</span>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <section class="panel" id="architecture">
+      <div class="section-head">
+        <div>
+          <h2>Complete Architecture</h2>
+          <p>
+            This view shows the full system structure: data sources, ingestion, processing,
+            storage, outputs, and the control layer that makes the platform scalable and measurable.
+          </p>
+        </div>
+        <div class="pill-row">
+          <span class="pill">Stream + Batch</span>
+          <span class="pill">Kafka + Spark</span>
+          <span class="pill">Redis + S3 + Parquet</span>
+          <span class="pill">Kubernetes + Terraform</span>
+        </div>
+      </div>
+
+      <div class="architecture-board">
+        <div class="pipeline">
+          <section class="stage sources">
+            <h3>1. Data Sources</h3>
+            <div class="stage-list">
+              <div class="node">
+                <strong>Live Telemetry Simulator</strong>
+                <span>Generates fridge events such as temperature, door state, battery, and time.</span>
+              </div>
+              <div class="node">
+                <strong>Lookup Data</strong>
+                <span>Maps devices to facilities, districts, states, and safe temperature thresholds.</span>
+              </div>
+              <div class="node">
+                <strong>Batch Logs</strong>
+                <span>Daily operations or maintenance records used for scheduled analytics.</span>
+              </div>
+            </div>
+            <small>These three inputs satisfy the assignment requirement for multiple data sources.</small>
+          </section>
+
+          <div class="connector">
+            <span>publish / upload</span>
+            <div class="arrow"></div>
+          </div>
+
+          <section class="stage ingestion">
+            <h3>2. Ingestion Layer</h3>
+            <div class="stage-list">
+              <div class="node">
+                <strong>Kafka</strong>
+                <span>Receives the live event stream and buffers traffic spikes.</span>
+              </div>
+              <div class="node">
+                <strong>S3 Raw Landing</strong>
+                <span>Stores raw batch uploads before deeper processing.</span>
+              </div>
+            </div>
+            <small>Kafka handles the stream path while S3 raw supports the batch entry point.</small>
+          </section>
+
+          <div class="connector">
+            <span>validate and process</span>
+            <div class="arrow"></div>
+          </div>
+
+          <section class="stage processing">
+            <h3>3. Processing Layer</h3>
+            <div class="stage-list">
+              <div class="node">
+                <strong>Spark Structured Streaming</strong>
+                <span>Validates, deduplicates, enriches, and checks live telemetry for breaches.</span>
+              </div>
+              <div class="node">
+                <strong>Spark Batch</strong>
+                <span>Runs scheduled analytics on daily logs and historical telemetry.</span>
+              </div>
+              <div class="node">
+                <strong>Airflow</strong>
+                <span>Schedules batch jobs, replays, and controlled benchmark workflows.</span>
+              </div>
+            </div>
+            <small>One main engine handles both stream and batch, which keeps the architecture unified.</small>
+          </section>
+
+          <div class="connector">
+            <span>persist and serve</span>
+            <div class="arrow"></div>
+          </div>
+
+          <section class="stage storage">
+            <h3>4. Storage Layer</h3>
+            <div class="stage-list">
+              <div class="node">
+                <strong>Redis Hot State</strong>
+                <span>Stores latest device status and active breach state for fast operational access.</span>
+              </div>
+              <div class="node">
+                <strong>S3 Curated Zone</strong>
+                <span>Stores processed historical outputs in a durable and cheaper storage layer.</span>
+              </div>
+              <div class="node">
+                <strong>Parquet Format</strong>
+                <span>Makes the historical layer efficient for analytics and reporting.</span>
+              </div>
+            </div>
+            <small>Hot data and historical data are separated so live alerts stay fast.</small>
+          </section>
+
+          <div class="connector">
+            <span>deliver results</span>
+            <div class="arrow"></div>
+          </div>
+
+          <section class="stage outputs">
+            <h3>5. Outputs</h3>
+            <div class="stage-list">
+              <div class="node">
+                <strong>Breach Output</strong>
+                <span>Flags unsafe storage conditions for active monitoring or alerting.</span>
+              </div>
+              <div class="node">
+                <strong>Live Device Status</strong>
+                <span>Shows the latest known state of each fridge or storage unit.</span>
+              </div>
+              <div class="node">
+                <strong>Reports and Analytics</strong>
+                <span>Provides compliance summaries and historical insights.</span>
+              </div>
+            </div>
+            <small>These outputs align with both operational monitoring and later analysis.</small>
+          </section>
+        </div>
+      </div>
+
+      <div class="control-strip">
+        <article class="control-card">
+          <strong>Kubernetes + Docker</strong>
+          <p>The whole pipeline runs in containers inside a Kubernetes environment.</p>
+        </article>
+        <article class="control-card">
+          <strong>Terraform</strong>
+          <p>Infrastructure is defined as code so baseline and optimized environments stay reproducible.</p>
+        </article>
+        <article class="control-card">
+          <strong>HPA + KEDA + Dynamic Allocation</strong>
+          <p>These controls handle metric-based scaling, Kafka backlog scaling, and Spark executor elasticity.</p>
+        </article>
+        <article class="control-card">
+          <strong>Prometheus + Grafana</strong>
+          <p>Metrics and dashboards turn the architecture into something measurable, not just deployable.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="panel" id="components">
+      <div class="section-head">
+        <div>
+          <h2>Component Guide</h2>
+          <p>
+            This section explains each major component in simple terms and shows how one component
+            supports another. It is meant for readers who want to understand the logic of the
+            architecture without already knowing the tools.
+          </p>
+        </div>
+        <div class="pill-row">
+          <span class="pill">What It Does</span>
+          <span class="pill">What It Receives</span>
+          <span class="pill">Who It Helps</span>
+        </div>
+      </div>
+
+      <div class="component-grid">
+        <article class="component-card sky">
+          <span class="mini-label">Source Layer</span>
+          <h3>Live Telemetry Simulator</h3>
+          <p>
+            This component acts like many vaccine refrigerators sending readings continuously.
+            It is the starting point of the real-time pipeline.
+          </p>
+          <ul>
+            <li>Creates repeatable event streams for normal, burst, and failure experiments.</li>
+            <li>Helps Kafka by giving it realistic event traffic to ingest.</li>
+            <li>Helps the evaluation phase because the same workloads can be replayed consistently.</li>
+          </ul>
+        </article>
+
+        <article class="component-card amber">
+          <span class="mini-label">Ingestion Layer</span>
+          <h3>Kafka</h3>
+          <p>
+            Kafka is the event buffer between the source and the processor. It does not do the
+            business logic itself. Its job is to hold and organize incoming live events safely.
+          </p>
+          <ul>
+            <li>Receives telemetry from the simulator.</li>
+            <li>Helps Spark by feeding it events in a durable and organized way.</li>
+            <li>Helps scaling because Kafka lag shows when the system is falling behind.</li>
+          </ul>
+        </article>
+
+        <article class="component-card teal">
+          <span class="mini-label">Processing Layer</span>
+          <h3>Spark Structured Streaming</h3>
+          <p>
+            This is the brain of the live pipeline. It turns raw events into meaningful outputs.
+          </p>
+          <ul>
+            <li>Receives events from Kafka.</li>
+            <li>Helps Redis by producing the latest cleaned operational state.</li>
+            <li>Helps S3 by writing processed history for later analytics.</li>
+          </ul>
+        </article>
+
+        <article class="component-card sky">
+          <span class="mini-label">Support Data</span>
+          <h3>Lookup Data</h3>
+          <p>
+            Lookup data gives meaning to raw device events. Without it, the system only sees IDs
+            and numbers, not facilities, regions, or allowed ranges.
+          </p>
+          <ul>
+            <li>Helps Spark classify whether a reading is safe or unsafe.</li>
+            <li>Helps reports by enabling district, state, and facility grouping.</li>
+            <li>Helps the live path and the batch path in the same way.</li>
+          </ul>
+        </article>
+
+        <article class="component-card olive">
+          <span class="mini-label">Hot Storage</span>
+          <h3>Redis</h3>
+          <p>
+            Redis stores only the most recent and operationally useful information. It is designed
+            for fast access, not for long-term history.
+          </p>
+          <ul>
+            <li>Receives processed current-state updates from Spark streaming.</li>
+            <li>Helps dashboards or live views respond quickly.</li>
+            <li>Helps latency by avoiding heavy historical queries for current status.</li>
+          </ul>
+        </article>
+
+        <article class="component-card olive">
+          <span class="mini-label">Cold And Analytical Storage</span>
+          <h3>S3 + Parquet</h3>
+          <p>
+            This is the long-term memory of the system. It keeps raw files and curated historical
+            outputs for analytics and reports.
+          </p>
+          <ul>
+            <li>Receives raw batch files and processed telemetry history.</li>
+            <li>Helps Spark batch by providing historical data for deeper analysis.</li>
+            <li>Helps cost efficiency by storing large history more cheaply than hot storage.</li>
+          </ul>
+        </article>
+
+        <article class="component-card amber">
+          <span class="mini-label">Workflow Orchestration</span>
+          <h3>Airflow</h3>
+          <p>
+            Airflow decides when batch work should happen. It does not replace Spark. It schedules
+            Spark jobs, backfills, and repeatable experiment runs.
+          </p>
+          <ul>
+            <li>Helps batch processing start at the right time.</li>
+            <li>Helps evaluation by making runs repeatable.</li>
+            <li>Helps cost control by not running heavy jobs continuously.</li>
+          </ul>
+        </article>
+
+        <article class="component-card coral">
+          <span class="mini-label">Elastic Control</span>
+          <h3>KEDA, HPA, And Spark Dynamic Allocation</h3>
+          <p>
+            These controls make the architecture elastic. They let the system grow during pressure
+            and shrink when demand falls.
+          </p>
+          <ul>
+            <li>KEDA helps Kafka-related workers scale using backlog signals.</li>
+            <li>HPA helps normal services scale using CPU or memory signals.</li>
+            <li>Spark dynamic allocation helps the processing layer add or remove executors.</li>
+          </ul>
+        </article>
+
+        <article class="component-card teal">
+          <span class="mini-label">Observability Layer</span>
+          <h3>Prometheus + Grafana</h3>
+          <p>
+            These tools make the system understandable during experiments. They show what is
+            happening instead of forcing you to rely only on logs.
+          </p>
+          <ul>
+            <li>Prometheus collects metrics from Kafka, Spark, Airflow, and Kubernetes.</li>
+            <li>Grafana helps humans see throughput, lag, delay, failures, and recovery visually.</li>
+            <li>They help the report because claims can be backed with graphs.</li>
+          </ul>
+        </article>
+      </div>
+
+      <div class="link-grid">
+        <article class="link-card">
+          <h3>How Components Help Each Other In The Live Path</h3>
+          <p>
+            The real-time path works because each component reduces the burden on the next one.
+          </p>
+          <div class="assist-list">
+            <div class="assist-item">
+              <strong>Simulator -> Kafka</strong>
+              <span>The simulator creates live traffic, and Kafka safely absorbs that traffic even if processing is temporarily slower.</span>
+            </div>
+            <div class="assist-item">
+              <strong>Kafka -> Spark Streaming</strong>
+              <span>Kafka gives Spark a durable and ordered event source so Spark can focus on logic instead of direct device connectivity.</span>
+            </div>
+            <div class="assist-item">
+              <strong>Lookup Data -> Spark Streaming</strong>
+              <span>Lookup data gives Spark the context needed to turn raw numbers into facility-aware breach decisions.</span>
+            </div>
+            <div class="assist-item">
+              <strong>Spark Streaming -> Redis</strong>
+              <span>Spark writes only the latest important state to Redis, so live monitoring stays fast.</span>
+            </div>
+            <div class="assist-item">
+              <strong>Spark Streaming -> S3</strong>
+              <span>Spark also writes processed records to the historical layer so the live path and reporting path stay connected.</span>
+            </div>
+          </div>
+        </article>
+
+        <article class="link-card">
+          <h3>How Components Help Each Other In The Batch And Evaluation Path</h3>
+          <p>
+            The batch and control layers turn the pipeline into a complete cloud project instead of
+            only a streaming demo.
+          </p>
+          <div class="assist-list">
+            <div class="assist-item">
+              <strong>Batch Logs -> S3 Raw -> Airflow</strong>
+              <span>Batch files land safely first, and Airflow later decides when they should be processed.</span>
+            </div>
+            <div class="assist-item">
+              <strong>Airflow -> Spark Batch</strong>
+              <span>Airflow triggers repeatable Spark jobs so historical analytics and benchmarks can run consistently.</span>
+            </div>
+            <div class="assist-item">
+              <strong>S3 Curated -> Spark Batch</strong>
+              <span>The historical telemetry already stored in S3 helps the batch layer produce compliance summaries and trend analysis.</span>
+            </div>
+            <div class="assist-item">
+              <strong>Kafka + Spark -> KEDA / Dynamic Allocation</strong>
+              <span>Lag and workload signals from the running pipeline help the control layer decide when to scale up or down.</span>
+            </div>
+            <div class="assist-item">
+              <strong>All Runtime Components -> Prometheus -> Grafana</strong>
+              <span>Each component emits signals that Prometheus collects, and Grafana turns those signals into graphs for analysis.</span>
+            </div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="panel" id="working-flow">
+      <div class="section-head">
+        <div>
+          <h2>How The System Works</h2>
+          <p>
+            This view focuses on behavior over time. Instead of showing all components at once,
+            it breaks the system into four easy stories: live telemetry, batch analytics,
+            elastic scaling, and failure recovery.
+          </p>
+        </div>
+        <div class="pill-row">
+          <span class="pill">Real-Time Path</span>
+          <span class="pill">Batch Path</span>
+          <span class="pill">Elastic Scaling</span>
+          <span class="pill">Recovery Logic</span>
+        </div>
+      </div>
+
+      <div class="flow-grid">
+        <article class="flow-card realtime">
+          <div class="flow-head">
+            <h3>Real-Time Telemetry Flow</h3>
+            <p>What happens when live fridge events arrive.</p>
+          </div>
+          <div class="steps">
+            <div class="step">
+              <div class="step-index">1</div>
+              <div><strong>Simulator sends events</strong><span>Temperature, battery, door state, and timestamps are published continuously.</span></div>
+            </div>
+            <div class="step">
+              <div class="step-index">2</div>
+              <div><strong>Kafka receives the stream</strong><span>Events enter the ingestion layer and can wait safely during short bursts.</span></div>
+            </div>
+            <div class="step">
+              <div class="step-index">3</div>
+              <div><strong>Spark validates and deduplicates</strong><span>Bad records are filtered and duplicate event IDs are suppressed.</span></div>
+            </div>
+            <div class="step">
+              <div class="step-index">4</div>
+              <div><strong>Lookup data enriches records</strong><span>The pipeline adds facility, district, state, and threshold context.</span></div>
+            </div>
+            <div class="step">
+              <div class="step-index">5</div>
+              <div><strong>Breach logic runs</strong><span>The system decides whether the temperature is safe or unsafe.</span></div>
+            </div>
+            <div class="step">
+              <div class="step-index">6</div>
+              <div><strong>Redis updates live state</strong><span>Current device status becomes quickly available for operational views.</span></div>
+            </div>
+            <div class="step">
+              <div class="step-index">7</div>
+              <div><strong>S3 stores history</strong><span>Processed records are also written to the historical analytics layer.</span></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="flow-card batch">
+          <div class="flow-head">
+            <h3>Batch Analytics Flow</h3>
+            <p>What happens when scheduled files arrive for deeper analysis.</p>
+          </div>
+          <div class="steps">
+            <div class="step">
+              <div class="step-index">1</div>
+              <div><strong>Daily logs are uploaded</strong><span>Operations or maintenance files arrive as batch input.</span></div>
+            </div>
+            <div class="step">
+              <div class="step-index">2</div>
+              <div><strong>S3 raw stores the upload</strong><span>The raw version is preserved for auditability and replay.</span></div>
+            </div>
+            <div class="step">
+              <div class="step-index">3</div>
+              <div><strong>Airflow triggers a run</strong><span>The batch workflow starts on schedule or during a controlled benchmark.</span></div>
+            </div>
+            <div class="step">
+              <div class="step-index">4</div>
+              <div><strong>Spark batch combines datasets</strong><span>Batch logs, lookup data, and telemetry history are processed together.</span></div>
+            </div>
+            <div class="step">
+              <div class="step-index">5</div>
+              <div><strong>Reports are produced</strong><span>The system creates compliance summaries and historical analysis outputs.</span></div>
+            </div>
+            <div class="step">
+              <div class="step-index">6</div>
+              <div><strong>Curated outputs are stored</strong><span>Final analytical results are written back to S3 in Parquet format.</span></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="flow-card scaling">
+          <div class="flow-head">
+            <h3>Elastic Scaling Flow</h3>
+            <p>What happens when traffic grows suddenly and the system must adapt.</p>
+          </div>
+          <div class="steps">
+            <div class="step">
+              <div class="step-index">1</div>
+              <div><strong>Traffic spike begins</strong><span>The simulator pushes more events than usual.</span></div>
+            </div>
+            <div class="step">
+              <div class="step-index">2</div>
+              <div><strong>Kafka backlog grows</strong><span>Waiting messages increase, which shows that the system is under pressure.</span></div>
+            </div>
+            <div class="step">
+              <div class="step-index">3</div>
+              <div><strong>KEDA and HPA react</strong><span>Relevant ingestion-side workers scale out when lag or resource pressure rises.</span></div>
+            </div>
+            <div class="step">
+              <div class="step-index">4</div>
+              <div><strong>Spark adds executors</strong><span>Dynamic allocation increases processing-side compute capacity.</span></div>
+            </div>
+            <div class="step">
+              <div class="step-index">5</div>
+              <div><strong>Lag starts dropping</strong><span>Higher consumption and higher processing capacity reduce the backlog.</span></div>
+            </div>
+            <div class="step">
+              <div class="step-index">6</div>
+              <div><strong>System scales back down</strong><span>When the load returns to normal, extra pods and executors are released.</span></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="flow-card recovery">
+          <div class="flow-head">
+            <h3>Failure and Recovery Flow</h3>
+            <p>What happens when a component crashes or becomes unavailable.</p>
+          </div>
+          <div class="steps">
+            <div class="step">
+              <div class="step-index">1</div>
+              <div><strong>A component fails</strong><span>A pod crashes, a service stops, or a processing task is interrupted.</span></div>
+            </div>
+            <div class="step">
+              <div class="step-index">2</div>
+              <div><strong>Kubernetes restarts it</strong><span>The platform attempts to restore the failed component automatically.</span></div>
+            </div>
+            <div class="step">
+              <div class="step-index">3</div>
+              <div><strong>Kafka keeps the events</strong><span>Unprocessed records remain available for replay instead of disappearing.</span></div>
+            </div>
+            <div class="step">
+              <div class="step-index">4</div>
+              <div><strong>Spark resumes from checkpoints</strong><span>The stream job recovers progress instead of starting from scratch.</span></div>
+            </div>
+            <div class="step">
+              <div class="step-index">5</div>
+              <div><strong>Processing continues</strong><span>The pipeline returns to normal operation and metrics capture recovery time.</span></div>
+            </div>
+          </div>
+        </article>
+      </div>
+
+      <div class="story-panel" id="story">
+        <article class="story-card">
+          <h3>Full Working Story</h3>
+          <div class="story-list">
+            <div class="story-item">
+              <strong>Live events enter continuously</strong>
+              <span>Telemetry from simulated cold-chain units is published into Kafka throughout the day.</span>
+            </div>
+            <div class="story-item">
+              <strong>The stream path handles urgent logic</strong>
+              <span>Spark validates, deduplicates, enriches, and checks every live event for breach conditions.</span>
+            </div>
+            <div class="story-item">
+              <strong>The hot store serves current status</strong>
+              <span>Redis keeps the latest state ready for fast operational views.</span>
+            </div>
+            <div class="story-item">
+              <strong>The historical layer keeps long-term value</strong>
+              <span>S3 and Parquet preserve processed records for reporting and compliance analytics.</span>
+            </div>
+            <div class="story-item">
+              <strong>The batch path adds depth</strong>
+              <span>Daily operations or maintenance logs are processed on schedule for summaries and historical reports.</span>
+            </div>
+            <div class="story-item">
+              <strong>The control layer makes it measurable</strong>
+              <span>Scaling, observability, and reproducibility are built into the architecture instead of being added later.</span>
+            </div>
+          </div>
+        </article>
+
+        <aside class="compare-card">
+          <h3>Baseline vs Optimized View</h3>
+          <div class="compare-grid">
+            <div class="compare-box">
+              <strong>Baseline</strong>
+              <span>Same architecture, same data, fixed-capacity settings, simple batch scheduling, no elastic autoscaling.</span>
+            </div>
+            <div class="compare-box">
+              <strong>Optimized</strong>
+              <span>Same architecture, same data, but with KEDA, HPA, Spark dynamic allocation, and cost-aware controls enabled.</span>
+            </div>
+            <div class="compare-box">
+              <strong>Why This Matters</strong>
+              <span>Only the optimization settings change, so measured improvements are academically defensible.</span>
+            </div>
+            <div class="compare-box">
+              <strong>What We Measure</strong>
+              <span>Latency, throughput, lag, recovery time, data quality, and cost proxies across repeated workloads.</span>
+            </div>
+          </div>
+        </aside>
+      </div>
+
+      <div class="footer-note">
+        This page combines the component view and the working-flow view into one presentation-friendly format,
+        but it still keeps the two ideas visually separate: the top section explains what the system contains,
+        and the lower section explains what the system does over time.
+      </div>
+    </section>
+  </main>
+</body>
+</html>
