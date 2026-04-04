@@ -7,12 +7,13 @@ The brief mentions a target of at least 99.9% pipeline uptime.
 The system should keep operating during normal failures, recover automatically when components crash, and avoid losing or corrupting data during recovery.
 
 ## How The Architecture Addresses It
-- `Kubernetes` can restart failed containers automatically.
+- `Amazon EKS` can restart failed containers automatically.
 - important stateless services can run with multiple replicas in the optimized setup.
 - `Kafka` stores events durably so short downstream failures do not immediately cause data loss.
 - `Spark checkpoints` preserve stream-processing progress and support restart recovery.
 - `Airflow` retries failed batch jobs.
-- `Prometheus + Grafana` help detect failures and measure recovery time.
+- `CloudWatch` helps detect AWS infrastructure and container-level failures.
+- `Prometheus + Grafana` help detect pipeline failures and measure recovery time.
 
 ## Failure Scenarios To Test
 - stop a consumer or processing component

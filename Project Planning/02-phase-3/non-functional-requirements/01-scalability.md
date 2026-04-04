@@ -17,11 +17,12 @@ In this project, scalability must happen in two places:
 - `Kafka partitions` allow multiple consumers to process data in parallel.
 - `KEDA` watches Kafka lag and increases or decreases relevant Kubernetes pods based on backlog.
 - `HPA` can scale regular services using CPU or memory metrics when lag is not the right signal.
+- `Amazon EKS` is the runtime where these autoscaling actions happen.
 
 ### Processing Layer
 - `Spark Structured Streaming` processes stream data continuously in small intervals.
 - `Spark dynamic allocation` increases the number of executors when the workload grows and reduces them when the workload becomes lighter.
-- `Kubernetes` provides the environment in which these resources can scale.
+- `Amazon EKS` provides the environment in which these resources can scale.
 
 ## Why This Is A Good Fit
 This gives a clear scaling story:

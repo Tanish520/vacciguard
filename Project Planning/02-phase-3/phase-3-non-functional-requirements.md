@@ -14,11 +14,11 @@ It also explains how each requirement will be measured during evaluation so that
 ## Quick Summary
 | Requirement | Target From Brief | Main Mechanisms | Main Metrics |
 | --- | --- | --- | --- |
-| Scalability | Auto-scale for 10x traffic spikes | Kafka partitions, KEDA, HPA, Spark dynamic allocation | throughput, lag, replica count, executor count, recovery time |
+| Scalability | Auto-scale for 10x traffic spikes | Kafka partitions, Amazon EKS, KEDA, HPA, Spark dynamic allocation | throughput, lag, replica count, executor count, recovery time |
 | Latency | Near-real-time analytics under 5 seconds | Kafka, Spark Structured Streaming, lightweight enrichment, Redis hot path | end-to-end latency, p95 delay, watermark delay |
-| Reliability | 99.9% pipeline uptime | Kubernetes restarts, replicated services, Kafka durability, Spark checkpoints, Airflow retries | uptime, successful processing rate, recovery time, failed job count |
+| Reliability | 99.9% pipeline uptime | Amazon EKS restarts, replicated services, Kafka durability, Spark checkpoints, Airflow retries, CloudWatch monitoring | uptime, successful processing rate, recovery time, failed job count |
 | Data Quality | Validation and deduplication | schema checks, range validation, required fields, event ID deduplication, quarantine path | invalid record count, duplicate count, late record count, clean record rate |
-| Cost Efficiency | Minimize cost per GB processed | Airflow scheduling, Spark dynamic allocation, KEDA scale-in, S3, Parquet | cost per GB, active compute time, average replicas, latency-cost trade-off |
+| Cost Efficiency | Minimize cost per GB processed | Airflow scheduling, Spark dynamic allocation, KEDA scale-in, ElastiCache Redis used only for hot state, S3, Parquet | cost per GB, active compute time, average replicas, latency-cost trade-off |
 
 ## 1. Scalability
 ### Requirement
@@ -32,11 +32,12 @@ Scalability is handled in both the ingestion layer and the processing layer.
 - `Kafka partitions` allow parallel consumption, so the system is not limited to a single consumer path.
 - `KEDA` watches Kafka lag and scales relevant Kubernetes pods when backlog grows.
 - `HPA` can scale regular services that are better measured by CPU or memory rather than event lag.
+- `Amazon EKS` provides the shared runtime where these scaling controls take effect.
 
 #### Processing Layer
 - `Spark Structured Streaming` processes stream data continuously in controlled micro-batches.
 - `Spark dynamic allocation` increases executors when more compute is needed and reduces them when load drops.
-- `Kubernetes` provides the environment in which additional processing resources can be created.
+- `Amazon EKS` provides the environment in which additional processing resources can be created.
 
 ### Why This Is A Good Fit
 This design gives a clear elasticity story:
@@ -77,6 +78,7 @@ Latency is mainly handled by keeping the live path short and lightweight.
 - `Spark Structured Streaming` processes events in small intervals instead of waiting for large batch windows.
 - `Device and facility lookup data` is small, so enrichment joins can be kept lightweight.
 - `Redis` stores the latest operational state so the live path does not depend on heavy analytical queries.
+- on AWS, this Redis layer is preferably deployed through `Amazon ElastiCache for Redis OSS or Valkey`
 - `S3 + Parquet` is used for historical storage, not for the immediate alerting path.
 
 ### Design Principle
@@ -116,12 +118,13 @@ The brief mentions at least 99.9% pipeline uptime.
 ### How The Architecture Addresses It
 Reliability is addressed through restart, replay, and recovery mechanisms.
 
-- `Kubernetes` can restart failed containers automatically.
+- `Amazon EKS` can restart failed containers automatically.
 - critical stateless services can run with multiple replicas in the optimized setup
 - `Kafka` stores events durably so short downstream failures do not immediately lose data
 - `Spark checkpoints` preserve processing progress and help the stream job recover
 - `Airflow` retries failed batch tasks
-- `Prometheus + Grafana` provide visibility into failures and recovery time
+- `CloudWatch` provides AWS infrastructure and log visibility
+- `Prometheus + Grafana` provide pipeline-level visibility into failures and recovery time
 
 ### Failure Scenarios We Should Test
 - stop a consumer or processing component
@@ -210,7 +213,7 @@ Cost efficiency comes from a combination of scheduling, scaling, and storage dec
 #### Efficient Storage
 - `S3` provides lower-cost long-term storage than keeping everything in a hot system.
 - `Parquet` reduces storage size and improves analytical efficiency compared with plain text formats.
-- `Redis` is used only for hot operational state, not for full historical retention.
+- `ElastiCache Redis` is used only for hot operational state, not for full historical retention.
 
 #### Efficient Architecture
 - using one main processing engine avoids the cost and complexity of running multiple engines
@@ -236,29 +239,32 @@ If the optimized version processes the same workload with less compute time, few
 | Requirement | Tool Or Mechanism | Role |
 | --- | --- | --- |
 | Scalability | Kafka partitions | support parallel ingestion and consumption |
+| Scalability | Amazon EKS | runtime where autoscaling controls apply |
 | Scalability | KEDA | scale workers based on Kafka lag |
 | Scalability | HPA | scale services using CPU or memory metrics |
 | Scalability | Spark dynamic allocation | scale processing compute up and down |
 | Latency | Kafka | fast ingestion and decoupling |
 | Latency | Spark Structured Streaming | near-real-time processing |
 | Latency | Redis | fast operational reads for live state |
-| Reliability | Kubernetes | restart failed components |
+| Reliability | Amazon EKS | restart failed components |
 | Reliability | Kafka | durable buffering and replay |
 | Reliability | Spark checkpoints | resume processing progress |
 | Reliability | Airflow retries | recover failed batch tasks |
+| Reliability | CloudWatch | infrastructure and log visibility |
 | Data Quality | schema and range validation | reject malformed data |
 | Data Quality | event ID deduplication | suppress duplicate effects |
 | Data Quality | quarantine path | keep bad data visible for analysis |
 | Cost Efficiency | Airflow scheduling | avoid unnecessary compute windows |
 | Cost Efficiency | Spark dynamic allocation | reduce idle compute |
 | Cost Efficiency | KEDA scale-in | shrink low-demand workers |
+| Cost Efficiency | ElastiCache Redis | hot-state only, not long-term retention |
 | Cost Efficiency | S3 + Parquet | efficient long-term storage |
 
 ## Final Interpretation
 The non-functional requirements are not handled by one single product. They are handled by a coordinated architecture:
 
 - Kafka and Spark provide the live and batch data movement
-- Kubernetes, HPA, KEDA, and Spark dynamic allocation provide elasticity
+- Amazon EKS, HPA, KEDA, and Spark dynamic allocation provide elasticity
 - checkpoints, retries, and replay provide reliability
 - validation and deduplication provide data quality
 - scheduling, scale-in behavior, and efficient storage provide cost control

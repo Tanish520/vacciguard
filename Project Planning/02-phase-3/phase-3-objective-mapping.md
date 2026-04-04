@@ -6,11 +6,11 @@ This document explains why the selected tools are a strong fit for the exact obj
 ## Objective Coverage Summary
 | Objective | Tooling Choice | Concrete Mechanism | What We Will Measure Later |
 | --- | --- | --- | --- |
-| Unified stream + batch analytics | Kafka, Spark, Redis, S3, Parquet | Stream events flow through Kafka and Spark Structured Streaming, batch files flow through Spark batch, live state is served from Redis, and historical data is stored in S3 as Parquet | end-to-end delay, batch completion time, correctness of live and historical outputs |
-| Elastic scaling | Kubernetes HPA, KEDA, Spark dynamic allocation, Kafka partitions | Scale services using resource metrics, Kafka lag, and executor demand | replica count, executor count, Kafka lag, throughput, recovery under burst |
+| Unified stream + batch analytics | Kafka, Spark, ElastiCache Redis, S3, Parquet | Stream events flow through Kafka and Spark Structured Streaming, batch files flow through Spark batch, live state is served from Redis, and historical data is stored in S3 as Parquet | end-to-end delay, batch completion time, correctness of live and historical outputs |
+| Elastic scaling | Amazon EKS, Kubernetes HPA, KEDA, Spark dynamic allocation, Kafka partitions | Scale services using resource metrics, Kafka lag, and executor demand | replica count, executor count, Kafka lag, throughput, recovery under burst |
 | Exactly-once or effectively-once semantics | Kafka, Spark checkpoints, event IDs, sink deduplication | Replay safely after failure and suppress harmful duplicates using checkpoint and idempotent logic | duplicate count, data loss count, replay correctness after restart |
-| Cost-aware scheduling and resource allocation | Airflow, Airflow pools, Spark dynamic allocation, KEDA, S3, Parquet | Schedule expensive work deliberately, limit concurrency, reduce idle compute, and use efficient storage | cost per GB, active compute time, average replicas or executors, latency-cost trade-off |
-| Realistic enterprise evaluation | Prometheus, Grafana, Airflow, Terraform, Kubernetes | Run controlled scenarios repeatedly and capture metrics consistently | latency, throughput, lag, failures, recovery time, cost proxies |
+| Cost-aware scheduling and resource allocation | Airflow, Airflow pools, Spark dynamic allocation, KEDA, ElastiCache Redis, S3, Parquet | Schedule expensive work deliberately, limit concurrency, reduce idle compute, keep Redis limited to hot state, and use efficient storage | cost per GB, active compute time, average replicas or executors, latency-cost trade-off |
+| Realistic enterprise evaluation | CloudWatch, Prometheus, Grafana, Airflow, Terraform, Amazon EKS | Run controlled scenarios repeatedly and capture both AWS runtime and pipeline metrics consistently | latency, throughput, lag, failures, recovery time, cost proxies |
 
 ## Objective 1: Build A Unified Cloud Data Pipeline For Real-Time And Batch Analytics
 ### What This Objective Really Means
@@ -23,13 +23,13 @@ The pipeline should support both:
 - `Apache Kafka` for real-time event ingestion
 - `Apache Spark Structured Streaming` for stream processing
 - `Apache Spark batch` for batch processing
+- `Amazon ElastiCache for Redis OSS or Valkey` for hot operational state
 - `Amazon S3 + Parquet` for historical and analytical storage
-- `Redis` for hot operational state
 
 ### Why These Tools Fit
 `Spark` is the key choice here because one engine handles both stream and batch work. That gives you a more unified architecture than using separate engines for each path.
 
-`Kafka` gives a clean stream entry point, while `S3 + Parquet` gives a strong historical analytics layer without needing a separate warehouse early in the project.
+`Kafka` gives a clean stream entry point, `ElastiCache Redis` gives a fast live-state layer on AWS, and `S3 + Parquet` gives a strong historical analytics layer without needing a separate warehouse early in the project.
 
 ### How We Will Prove This Objective
 We will demonstrate:
@@ -53,6 +53,7 @@ If the project focused only on advanced streaming behavior, Flink would be a str
 The system should grow when backlog or workload increases and shrink when demand falls.
 
 ### Chosen Tools
+- `Amazon EKS`
 - `Kubernetes HPA`
 - `KEDA`
 - `Spark dynamic allocation`
@@ -137,6 +138,7 @@ The system should avoid paying for more compute than needed and should schedule 
 - `Airflow pools` to limit concurrency for expensive jobs
 - `Spark dynamic allocation` to reduce idle executors
 - `KEDA` to reduce some workers when event backlog is low
+- `Amazon ElastiCache for Redis OSS or Valkey` used only as a hot-state layer
 - `S3 + Parquet` for lower-cost historical storage
 
 ### Why These Tools Fit
@@ -167,12 +169,13 @@ You need a repeatable experiment setup, not just a working demo.
 ### Chosen Tools
 - `Kafka` for controllable event-rate experiments
 - `Spark` for measurable processing behavior
-- `Prometheus + Grafana` for metrics and dashboards
+- `Amazon CloudWatch + Container Insights` for AWS runtime logs and infrastructure metrics
+- `self-managed Prometheus + self-managed Grafana on EKS` for pipeline metrics and dashboards
 - `Airflow` for repeatable benchmark workflow runs
-- `Terraform + Kubernetes` for reproducible deployments
+- `Terraform + Amazon EKS` for reproducible deployments
 
 ### Why These Tools Fit
-`Prometheus + Grafana` gives you the graphs your professor wants:
+`CloudWatch` gives you AWS-side runtime visibility, while `Prometheus + Grafana` gives you the pipeline-level graphs your professor wants:
 
 - throughput
 - lag
@@ -180,7 +183,7 @@ You need a repeatable experiment setup, not just a working demo.
 - failures
 - recovery behavior
 
-`Airflow` helps repeat experiments in a controlled way, and `Terraform` helps you recreate the same environment for baseline and optimized runs.
+`Airflow` helps repeat experiments in a controlled way, and `Terraform` helps you recreate the same EKS environment for baseline and optimized runs.
 
 ### How We Will Prove This Objective
 We will demonstrate controlled experiments for:
@@ -192,29 +195,54 @@ We will demonstrate controlled experiments for:
 
 For each run, we will capture the same metrics so baseline and optimized results are directly comparable.
 
+## AWS Monitoring And Hot-Store Decisions
+### Why Self-Managed Prometheus And Grafana On EKS
+For this project, self-managed Prometheus and Grafana on EKS are the better choice than adding AWS managed observability services everywhere because:
+
+- the monitoring stack stays inside the same Kubernetes story as the rest of the platform
+- custom Kafka, Spark, and Airflow metrics are easier to explain in one cluster-based setup
+- the project remains easier to demo and reason about as a student system
+
+### Why CloudWatch Is Still Included
+CloudWatch is still important because the project runs on AWS and needs:
+
+- EKS infrastructure visibility
+- container logs
+- alarms and runtime health signals
+
+### Why Redis Stays And DynamoDB Does Not Replace It
+The hot-state requirement is better matched by Redis than DynamoDB because:
+
+- the design needs a fast live-state layer
+- the main use case is current operational state, not a durable primary NoSQL table
+- using ElastiCache keeps Redis managed on AWS without changing the architecture story
+- DynamoDB would change the role of the hot layer from in-memory operational state to a more durable NoSQL table model
+
 ## Final Justification In One View
 | Objective | Main Tools | Why This Combination Works |
 | --- | --- | --- |
-| Unified stream + batch analytics | Kafka, Spark, S3, Parquet, Redis | One stream path, one batch path, one processing engine |
-| Elastic scaling | Kubernetes HPA, KEDA, Spark dynamic allocation | Covers both metric-based and backlog-based scaling |
+| Unified stream + batch analytics | Kafka, Spark, S3, Parquet, ElastiCache Redis | One stream path, one batch path, one processing engine |
+| Elastic scaling | Amazon EKS, Kubernetes HPA, KEDA, Spark dynamic allocation | Covers both metric-based and backlog-based scaling |
 | Exactly-once or effectively-once | Kafka, Spark checkpoints, event IDs | Strong replay and deduplication story |
-| Cost-aware scheduling | Airflow, Spark dynamic allocation, KEDA, S3, Parquet | Controls compute timing, parallelism, and storage cost |
-| Realistic evaluation | Prometheus, Grafana, Airflow, Terraform, Kubernetes | Supports controlled, repeatable benchmarking |
+| Cost-aware scheduling | Airflow, Spark dynamic allocation, KEDA, ElastiCache Redis, S3, Parquet | Controls compute timing, parallelism, and storage cost |
+| Realistic evaluation | CloudWatch, Prometheus, Grafana, Airflow, Terraform, Amazon EKS | Supports controlled, repeatable benchmarking |
 
 ## Final Recommendation
 If your goal is the highest chance of completing the project well and defending it confidently, the safest stack is:
 
 - `Kafka`
 - `Spark`
+- `Amazon EKS`
 - `Kubernetes HPA`
 - `KEDA`
-- `Redis`
+- `Amazon ElastiCache for Redis OSS or Valkey`
 - `S3`
 - `Parquet`
 - `Airflow`
+- `CloudWatch`
 - `Terraform`
-- `Prometheus`
-- `Grafana`
+- `self-managed Prometheus`
+- `self-managed Grafana`
 
 This stack is not the only valid one. It is the one that best balances:
 
