@@ -682,11 +682,11 @@
           </div>
           <div class="hero-badge">
             <strong>Operational + Historical</strong>
-            <span>Redis serves live state while S3 and Parquet preserve analysis-ready history.</span>
+            <span>ElastiCache Redis serves live state while S3 and Parquet preserve analysis-ready history.</span>
           </div>
           <div class="hero-badge">
             <strong>Evaluation Ready</strong>
-            <span>Prometheus, Grafana, Airflow, and Terraform support controlled benchmarking.</span>
+            <span>CloudWatch, Prometheus, Grafana, Airflow, and Terraform support controlled benchmarking on AWS.</span>
           </div>
         </div>
       </div>
@@ -697,15 +697,16 @@
         <div>
           <h2>Complete Architecture</h2>
           <p>
-            This view shows the full system structure: data sources, ingestion, processing,
-            storage, outputs, and the control layer that makes the platform scalable and measurable.
+            This view shows the full AWS-based system structure: data sources, ingestion,
+            processing, storage, outputs, and the control layer that makes the platform scalable
+            and measurable.
           </p>
         </div>
         <div class="pill-row">
           <span class="pill">Stream + Batch</span>
           <span class="pill">Kafka + Spark</span>
-          <span class="pill">Redis + S3 + Parquet</span>
-          <span class="pill">Kubernetes + Terraform</span>
+          <span class="pill">ElastiCache Redis + S3 + Parquet</span>
+          <span class="pill">Amazon EKS + Terraform</span>
         </div>
       </div>
 
@@ -783,8 +784,8 @@
             <h3>4. Storage Layer</h3>
             <div class="stage-list">
               <div class="node">
-                <strong>Redis Hot State</strong>
-                <span>Stores latest device status and active breach state for fast operational access.</span>
+                <strong>ElastiCache Redis Hot State</strong>
+                <span>Stores latest device status and active breach state for fast operational access on AWS.</span>
               </div>
               <div class="node">
                 <strong>S3 Curated Zone</strong>
@@ -795,7 +796,7 @@
                 <span>Makes the historical layer efficient for analytics and reporting.</span>
               </div>
             </div>
-            <small>Hot data and historical data are separated so live alerts stay fast.</small>
+            <small>Managed hot data on AWS and cheaper historical storage are separated so live alerts stay fast.</small>
           </section>
 
           <div class="connector">
@@ -826,8 +827,8 @@
 
       <div class="control-strip">
         <article class="control-card">
-          <strong>Kubernetes + Docker</strong>
-          <p>The whole pipeline runs in containers inside a Kubernetes environment.</p>
+          <strong>Amazon EKS + Docker</strong>
+          <p>The whole pipeline runs in containers inside Amazon EKS so both pipeline versions share the same cloud environment model.</p>
         </article>
         <article class="control-card">
           <strong>Terraform</strong>
@@ -838,8 +839,8 @@
           <p>These controls handle metric-based scaling, Kafka backlog scaling, and Spark executor elasticity.</p>
         </article>
         <article class="control-card">
-          <strong>Prometheus + Grafana</strong>
-          <p>Metrics and dashboards turn the architecture into something measurable, not just deployable.</p>
+          <strong>CloudWatch + Prometheus + Grafana</strong>
+          <p>CloudWatch watches AWS and EKS health, while Prometheus and Grafana expose pipeline metrics and experiment dashboards.</p>
         </article>
       </div>
     </section>
@@ -919,14 +920,15 @@
 
         <article class="component-card olive">
           <span class="mini-label">Hot Storage</span>
-          <h3>Redis</h3>
+          <h3>ElastiCache Redis</h3>
           <p>
-            Redis stores only the most recent and operationally useful information. It is designed
-            for fast access, not for long-term history.
+            The logical hot store is Redis, and on AWS we deploy it through Amazon ElastiCache
+            (Redis OSS or Valkey). It stores only the most recent and operationally useful
+            information, not long-term history.
           </p>
           <ul>
             <li>Receives processed current-state updates from Spark streaming.</li>
-            <li>Helps dashboards or live views respond quickly.</li>
+            <li>Helps dashboards or live views respond quickly through a managed in-memory AWS service.</li>
             <li>Helps latency by avoiding heavy historical queries for current status.</li>
           </ul>
         </article>
@@ -975,15 +977,15 @@
 
         <article class="component-card teal">
           <span class="mini-label">Observability Layer</span>
-          <h3>Prometheus + Grafana</h3>
+          <h3>CloudWatch + Prometheus + Grafana</h3>
           <p>
-            These tools make the system understandable during experiments. They show what is
-            happening instead of forcing you to rely only on logs.
+            These tools make the system understandable during experiments. They split observability
+            cleanly between AWS infrastructure behavior and pipeline-level metrics.
           </p>
           <ul>
-            <li>Prometheus collects metrics from Kafka, Spark, Airflow, and Kubernetes.</li>
+            <li>CloudWatch and Container Insights watch AWS and EKS health, logs, and alarms.</li>
+            <li>Prometheus collects pipeline metrics from Kafka, Spark, and Airflow.</li>
             <li>Grafana helps humans see throughput, lag, delay, failures, and recovery visually.</li>
-            <li>They help the report because claims can be backed with graphs.</li>
           </ul>
         </article>
       </div>
@@ -1008,8 +1010,8 @@
               <span>Lookup data gives Spark the context needed to turn raw numbers into facility-aware breach decisions.</span>
             </div>
             <div class="assist-item">
-              <strong>Spark Streaming -> Redis</strong>
-              <span>Spark writes only the latest important state to Redis, so live monitoring stays fast.</span>
+              <strong>Spark Streaming -> ElastiCache Redis</strong>
+              <span>Spark writes only the latest important state to ElastiCache Redis, so live monitoring stays fast.</span>
             </div>
             <div class="assist-item">
               <strong>Spark Streaming -> S3</strong>
@@ -1042,8 +1044,8 @@
               <span>Lag and workload signals from the running pipeline help the control layer decide when to scale up or down.</span>
             </div>
             <div class="assist-item">
-              <strong>All Runtime Components -> Prometheus -> Grafana</strong>
-              <span>Each component emits signals that Prometheus collects, and Grafana turns those signals into graphs for analysis.</span>
+              <strong>AWS + Pipeline Signals -> CloudWatch / Prometheus -> Grafana</strong>
+              <span>CloudWatch captures AWS and EKS behavior, Prometheus captures pipeline behavior, and Grafana turns both into analysis-friendly dashboards.</span>
             </div>
           </div>
         </article>
@@ -1097,7 +1099,7 @@
             </div>
             <div class="step">
               <div class="step-index">6</div>
-              <div><strong>Redis updates live state</strong><span>Current device status becomes quickly available for operational views.</span></div>
+              <div><strong>ElastiCache Redis updates live state</strong><span>Current device status becomes quickly available for operational views.</span></div>
             </div>
             <div class="step">
               <div class="step-index">7</div>
@@ -1184,7 +1186,7 @@
             </div>
             <div class="step">
               <div class="step-index">2</div>
-              <div><strong>Kubernetes restarts it</strong><span>The platform attempts to restore the failed component automatically.</span></div>
+              <div><strong>Amazon EKS restarts it</strong><span>The platform attempts to restore the failed component automatically.</span></div>
             </div>
             <div class="step">
               <div class="step-index">3</div>
@@ -1216,7 +1218,7 @@
             </div>
             <div class="story-item">
               <strong>The hot store serves current status</strong>
-              <span>Redis keeps the latest state ready for fast operational views.</span>
+              <span>ElastiCache Redis keeps the latest state ready for fast operational views.</span>
             </div>
             <div class="story-item">
               <strong>The historical layer keeps long-term value</strong>
@@ -1228,7 +1230,7 @@
             </div>
             <div class="story-item">
               <strong>The control layer makes it measurable</strong>
-              <span>Scaling, observability, and reproducibility are built into the architecture instead of being added later.</span>
+              <span>Scaling, AWS observability, pipeline metrics, and reproducibility are built into the architecture instead of being added later.</span>
             </div>
           </div>
         </article>
@@ -1238,11 +1240,11 @@
           <div class="compare-grid">
             <div class="compare-box">
               <strong>Baseline</strong>
-              <span>Same architecture, same data, fixed-capacity settings, simple batch scheduling, no elastic autoscaling.</span>
+              <span>Same AWS architecture, same data, fixed-capacity settings, simple batch scheduling, and no elastic autoscaling.</span>
             </div>
             <div class="compare-box">
               <strong>Optimized</strong>
-              <span>Same architecture, same data, but with KEDA, HPA, Spark dynamic allocation, and cost-aware controls enabled.</span>
+              <span>Same AWS architecture, same data, but with KEDA, HPA, Spark dynamic allocation, and cost-aware controls enabled.</span>
             </div>
             <div class="compare-box">
               <strong>Why This Matters</strong>
