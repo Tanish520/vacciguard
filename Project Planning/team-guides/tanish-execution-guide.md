@@ -50,6 +50,7 @@ of the professor.
 - clear baseline acceptance criteria
 - one integrated baseline pipeline story
 - baseline freeze decisions for schema, workload, and deployment assumptions
+- frozen SLA thresholds and clear interpretation rules for violation analysis
 - baseline evidence pack for later comparison
 - clear coordination across Alok, Aayush, and Monty
 - baseline sign-off decision when the pipeline is ready
@@ -169,6 +170,20 @@ If the team begins optimization before the baseline is frozen:
 
 So Tanish should treat baseline freeze as a real milestone, not a vague feeling.
 
+### 5. Business alerts are not the same as SLA violations
+Tanish should keep these two ideas separate in the methodology and evaluation:
+
+- **business alerts**
+  - unsafe temperature conditions detected by Aayush's stream logic
+  - represented by breach-related fields and current-state outputs
+
+- **SLA violations**
+  - platform-level failures to meet service expectations such as latency, lag, progress, or recovery
+  - detected through monitoring and explicit thresholds
+
+This matters because the project can have correct breach detection while still violate system-level
+SLA goals under load or failure.
+
 ## Detailed Step-by-Step Approach
 
 ### Step 1: Define baseline acceptance criteria early
@@ -182,6 +197,7 @@ At minimum, the baseline should require:
 - deployment profile is fixed
 - no autoscaling is enabled in baseline
 - metrics are visible
+- SLA thresholds and rule definitions are explicit enough to reuse later
 
 Why this step matters:
 - without this, the team may keep saying the baseline is "almost ready" without a real finish line
@@ -261,6 +277,7 @@ Important freeze points:
 - schema freeze
 - workload freeze
 - baseline deployment freeze
+- SLA threshold freeze
 - baseline sign-off
 
 He should record these clearly in:
@@ -327,6 +344,7 @@ This evidence should include:
 - workload assumptions
 - sample output summaries
 - metric screenshots or exported values
+- SLA violation summaries or confirmation that the rules stayed healthy during the run
 - notes on correctness and known limitations
 
 Why this step matters:
@@ -338,6 +356,7 @@ Tanish should only sign off the baseline if the following are true:
 - batch path works
 - workload is frozen
 - deployment profile is frozen
+- SLA thresholds are frozen
 - baseline is fixed-capacity
 - outputs are correct enough to trust
 - metrics are visible enough to evaluate
@@ -390,6 +409,7 @@ Tanish's baseline role should be considered complete only when:
 - baseline acceptance criteria are defined
 - all critical coordination gates are tracked
 - schema, workload, and deployment assumptions are frozen
+- SLA thresholds and rule meanings are frozen
 - the baseline pipeline is integrated end to end
 - baseline outputs and metrics are collected
 - baseline sign-off is recorded clearly
@@ -397,6 +417,7 @@ Tanish's baseline role should be considered complete only when:
 ## Common Mistakes To Avoid
 - treating the baseline like a rough draft instead of a reference system
 - allowing schema or workload changes after freeze without recording them
+- discussing SLA behavior without first freezing the thresholds and metric meanings
 - signing off based only on "it runs"
 - letting autoscaling leak into the baseline
 - forgetting to collect evidence at the moment the baseline works

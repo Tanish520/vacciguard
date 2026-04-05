@@ -69,7 +69,7 @@ human teammates to maintain it automatically. The practical way to ensure it sta
 
 ## Current Project State
 - `Current phase`: baseline pipeline implementation preparation
-- `Current focus`: build the baseline pipeline first, then freeze it before optimization work
+- `Current focus`: build the baseline pipeline first, wire explicit SLA detection into the monitoring path, then freeze baseline assumptions before optimization work
 - `Architecture status`: locked
 - `Schema status`: frozen
 - `Folder structure status`: created
@@ -109,10 +109,12 @@ human teammates to maintain it automatically. The practical way to ensure it sta
 - replay producer implementation
 - Spark stream processor implementation
 - Spark batch processor implementation
+- processing-side SLA metric exposure
 - Terraform implementation
 - EKS deployment manifests
 - baseline runtime profile implementation
 - monitoring dashboards implementation
+- explicit SLA rule implementation in monitoring
 
 ## Member Sections
 
@@ -137,6 +139,7 @@ human teammates to maintain it automatically. The practical way to ensure it sta
 
 ### Pending
 - end-to-end integration work
+- freeze SLA thresholds for baseline and optimized comparison
 - final baseline freeze sign-off
 - baseline evidence pack
 - baseline evaluation summary
@@ -178,6 +181,7 @@ human teammates to maintain it automatically. The practical way to ensure it sta
 - precomputed workload files
 - replay producer implementation
 - replay smoke validation
+- workload coverage for SLA-triggering scenarios such as sustained lag and recovery replay
 - baseline workload freeze
 
 ### Blocked By
@@ -213,6 +217,7 @@ human teammates to maintain it automatically. The practical way to ensure it sta
 - enrichment logic implementation
 - breach logic implementation
 - Redis/S3 output implementation
+- processing metrics for SLA detection
 - stream smoke test
 - batch smoke test
 
@@ -249,6 +254,7 @@ human teammates to maintain it automatically. The practical way to ensure it sta
 - EKS setup
 - baseline deployment manifests
 - monitoring deployment
+- SLA alert-rule wiring and dashboard panels
 - Airflow deployment
 - baseline runtime freeze
 - scaling and failure test setup
