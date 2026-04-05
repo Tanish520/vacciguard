@@ -27,6 +27,8 @@ evaluate the pipeline using fixed and repeatable workloads.
 - support for parallel producer instances if one producer is not enough
 - clear schema documentation for all generated events
 - sample lookup data and batch logs
+- workload scenarios that are strong enough to trigger SLA checks such as sustained lag, invalid
+  events, duplicate events, and recovery replay
 - a short handoff note telling Aayush and Monty how to use the generated inputs
 
 ## How Other Members Use Alok's Work
@@ -87,13 +89,14 @@ Alok should treat that file as the source of truth and use these starter files a
 The live telemetry event should include at least:
 - `event_id`
 - `device_id`
+- `event_time`
 - `temperature_c`
 - `door_open`
 - `battery_pct`
-- `event_time`
 
 The lookup dataset should include at least:
 - `device_id`
+- `facility_id`
 - `facility_name`
 - `district`
 - `state`
@@ -101,11 +104,17 @@ The lookup dataset should include at least:
 - `max_temp_c`
 
 The batch log dataset should include at least:
-- `facility_name` or `device_id`
 - `log_date`
-- `maintenance_flag`
+- `facility_id`
 - `power_outage_minutes`
-- `manual_temp_check_c`
+- `manual_temp_check_count`
+- `maintenance_flag`
+- `technician_visit_flag`
+- `stock_transfer_flag`
+
+Important rule:
+- if this quick summary and the frozen schema document ever disagree, the frozen schema document
+  wins
 
 Why this step matters:
 - Aayush needs a stable schema to write Spark jobs
@@ -135,6 +144,25 @@ What each one should do:
 Why this step matters:
 - baseline and optimized pipelines must be tested against the same workload patterns
 - the team needs more than one scenario to show correctness, scaling, and recovery behavior
+
+### Step 2A: Make sure the workload families can support SLA detection later
+Alok's workload design should not only support business testing like breach detection. It should
+also create the conditions needed for system-level SLA detection and evaluation.
+
+That means the workload plan should support:
+- a sustained burst that can create measurable Kafka lag
+- a normal-load phase so steady-state latency can be measured
+- a cooldown phase so backlog drain and recovery can be observed
+- invalid and duplicate records so quality-related counters are exercised honestly
+- a recovery replay scenario so the team can measure restart and recovery behavior
+
+This matters because later:
+- Aayush exposes the processing metrics
+- Monty turns those metrics into alert rules and dashboards
+- Tanish uses the resulting evidence in baseline versus optimized analysis
+
+If Alok only produces "interesting" data but not the right pressure patterns, the rest of the
+team will not be able to prove SLA violation detection convincingly.
 
 ### Step 3: Decide the target data rate and total dataset size before generation
 After defining workload families, Alok should decide how fast the replay system must publish data
@@ -203,6 +231,18 @@ So the full main evaluation workload should contain:
 
 This means Alok should precompute one main streaming workload of about `2.1 million` records for
 the baseline versus optimized scale test.
+
+#### 3.3A How this main workload supports later SLA evaluation
+Alok should think about the `2.1 million`-event workload as the team's main measurement instrument,
+not only as a large input file.
+
+That one workload helps later evaluation by creating:
+- a warmup phase for measuring normal latency and throughput
+- a spike phase for observing lag growth and scaling pressure
+- a cooldown phase for observing backlog drain and recovery
+
+So when Monty and Tanish later discuss latency violations, lag violations, and recovery behavior,
+they will be talking about conditions that this workload was intentionally designed to create.
 
 #### 3.4 Estimate the rough storage size
 Alok does not need the exact storage size before generation, but a rough estimate helps with

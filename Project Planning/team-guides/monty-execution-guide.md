@@ -61,6 +61,7 @@ So Monty's work answers questions like:
 - optimized Kubernetes deployment manifests with autoscaling enabled
 - Prometheus and Grafana deployment and dashboards
 - CloudWatch and Container Insights integration
+- explicit SLA detection rules and dashboards for latency, lag, stalled processing, and recovery
 - clear runtime configuration for the stream job, batch job, and replay producer
 - scaling configuration for HPA, KEDA, and Spark dynamic allocation in the optimized version
 - recovery and observability notes for the final report and evaluation
@@ -202,6 +203,19 @@ That means baseline should not include:
 
 Those belong to the optimized deployment only.
 
+### 6. SLA violation detection lives mainly in the monitoring layer
+Monty should treat SLA detection as a monitoring and evaluation responsibility, not as business
+logic inside Spark.
+
+That means:
+- Aayush exposes processing-side metrics such as latency and progress
+- Kafka and Kubernetes expose runtime signals such as lag and health
+- Monty turns those signals into explicit rules, dashboards, and violation indicators
+
+Monty should keep this distinction clear:
+- **business alerts**: breach conditions, produced by Spark business logic
+- **SLA violations**: latency too high, lag too high, no progress, recovery too slow
+
 ## Detailed Step-by-Step Approach
 
 ### Step 1: Establish the AWS foundation first
@@ -335,6 +349,33 @@ team can actually use.
 Why this step matters:
 - metrics are part of the methodology, not an optional extra
 
+### Step 7A: Turn the chosen metrics into explicit SLA rules
+After the metrics are visible, Monty should define the actual violation rules the team will use in
+baseline and optimized comparison.
+
+Recommended initial SLA rule set:
+- **SLA-1 latency violation**
+  - metric: p95 end-to-end latency from the stream path
+  - meaning: near-real-time target is being missed
+- **SLA-2 lag violation**
+  - metric: Kafka consumer lag
+  - meaning: processing is falling behind ingestion
+- **SLA-3 stalled-processing violation**
+  - signal: backlog or lag exists but processed-record count does not increase
+  - meaning: the stream path is not making useful progress
+- **SLA-4 recovery-time violation**
+  - signal: measured time from a controlled failure to healthy resumed processing
+  - meaning: the system recovered too slowly
+
+Monty should implement these through the monitoring stack like this:
+- `Prometheus` scrapes Kafka, Spark, and custom pipeline metrics
+- `Grafana` visualizes the rule inputs and alert states
+- `CloudWatch` provides AWS and EKS runtime visibility, logs, and infrastructure alarms
+
+Monty should not guess thresholds casually during evaluation. He should work with Tanish to freeze
+the thresholds once the baseline design is ready, and then reuse those same thresholds in the
+optimized comparison.
+
 ### Step 8: Deploy Airflow with the correct role
 Monty should deploy Airflow in a way that supports:
 - daily batch jobs
@@ -386,6 +427,7 @@ He should confirm:
 - S3 receives historical outputs
 - batch jobs complete successfully
 - monitoring dashboards show useful signals
+- the SLA rule inputs and alert states behave sensibly during smoke validation
 
 Why this step matters:
 - optimized tuning is meaningless if the baseline is not correct first
@@ -455,6 +497,7 @@ He should ensure:
 - same datasets
 - same code
 - same monitoring method
+- same SLA thresholds and rule definitions
 
 Only the optimization controls should differ.
 
@@ -466,6 +509,7 @@ Before the final evaluation and report work, Monty should give Tanish:
 - the exact baseline deployment assumptions
 - the exact optimized deployment assumptions
 - key dashboards or metric sources
+- the exact SLA rule definitions and where their evidence appears in dashboards or logs
 - notes on what changed and what did not change between the two versions
 
 Why this step matters:

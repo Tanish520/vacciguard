@@ -62,6 +62,7 @@ So if Aayush's logic is unclear or inconsistent, the whole project becomes diffi
 - breach classification logic using `min_temp_c` and `max_temp_c`
 - streaming outputs written to `ElastiCache Redis` and `S3/Parquet`
 - batch outputs written to `S3/Parquet`
+- processing-side metrics needed for SLA detection and evaluation
 - simple smoke-test instructions that others can follow
 - a short handoff note explaining what outputs Monty and Tanish should expect
 
@@ -129,6 +130,24 @@ He should use these starter files when beginning implementation:
 ### Batch outputs
 - **daily or period summaries** in `S3` using `Parquet`
 - **compliance-oriented analytical outputs** that combine historical telemetry, lookup data, and batch logs
+
+### Monitoring outputs
+Aayush should also expose processing-side metrics that the monitoring stack can use later for SLA
+violation detection.
+
+These are not the same as business outputs like breach records.
+
+At minimum, Aayush should plan to expose:
+- **end-to-end latency** derived from processing time versus `event_time`
+- **processed-record count** or processed-record rate
+- **invalid-record count** or invalid-record ratio
+- **failed micro-batch count** if feasible
+- **breach count** for dashboards, even though breach alerts are not themselves SLA violations
+
+Important rule:
+- Aayush is responsible for exposing the signals
+- Monty is responsible for turning those signals into Prometheus, Grafana, or CloudWatch alert rules
+- Tanish is responsible for freezing the thresholds used in evaluation
 
 ### Important rule
 The baseline and optimized pipelines should use the same processing logic and the same output
@@ -203,6 +222,22 @@ But the baseline should not depend on:
 - special optimized logic that only exists in one version
 
 This is what keeps the comparison fair later.
+
+### 6. Business alerts and SLA violations are different
+Aayush should keep these two ideas separate in his implementation:
+
+- **business alerts**
+  - example: a device temperature is outside the allowed threshold
+  - handled inside stream-processing business logic
+  - represented by fields like `breach_status` and `breach_type`
+
+- **SLA violations**
+  - example: the pipeline is too slow, falling behind, or recovering too slowly
+  - not decided by the breach logic itself
+  - detected later through monitoring rules built on top of processing metrics
+
+This matters because the project can have correct breach detection and still violate platform-level
+SLA expectations under load or failure.
 
 ## Detailed Step-by-Step Approach
 
@@ -476,6 +511,42 @@ At the end of this step, Aayush should be able to explain:
 - what goes to S3
 - why the same processed event is not written in the same way to both sinks
 
+### Step 8A: Expose the metrics needed for SLA detection
+Once the streaming outputs are designed, Aayush should make the processing layer observable enough
+for SLA-oriented evaluation. This is part of the implementation, not a cosmetic extra.
+
+The key idea is:
+- Spark processing emits the important health signals
+- Monty connects those signals to dashboards and alert rules
+- Tanish later uses the exact same signals for baseline versus optimized analysis
+
+The most important metric is end-to-end latency.
+
+A practical implementation approach is:
+1. preserve `event_time` from the incoming event
+2. capture a processing timestamp when the record or micro-batch is handled
+3. compute latency as `processing_timestamp - event_time`
+4. aggregate that into:
+   - average latency
+   - p95 latency
+   - p99 latency if feasible
+
+In addition, Aayush should expose:
+- processed-record count over time
+- invalid-record count over time
+- duplicate-suppression count if feasible
+- failed-micro-batch count if feasible
+
+Why these matter:
+- latency supports SLA-1
+- processed-record progress supports stalled-processing detection
+- invalid-record metrics support quality and trust analysis
+- failed-micro-batch metrics support stability analysis
+
+Important implementation rule:
+- Aayush does not need to decide the final alert thresholds here
+- he needs to make sure the processing layer surfaces the signals cleanly and consistently
+
 ### Step 9: Implement the batch-processing job
 Once the stream path is clear, Aayush should build the batch path using Spark batch.
 
@@ -569,6 +640,7 @@ Before deployment starts, Aayush should tell Monty:
 - what configuration the jobs need
 - what outputs should appear in Redis and S3
 - what logs or metrics indicate healthy processing
+- what processing metrics are available for SLA detection
 
 Why this step matters:
 - deployment gets much easier when runtime expectations are explicit
@@ -578,12 +650,16 @@ A useful handoff here should include:
 - expected output paths
 - whether a checkpoint path is required
 - what "healthy processing" looks like in logs or counts
+- how end-to-end latency is computed
+- which counters should keep increasing during healthy processing
+- which counters indicate invalid-record or failed-batch behavior
 
 ### Step 14: Define handoff expectations for Tanish
 Before evaluation starts, Aayush should tell Tanish:
 - what output datasets the pipeline produces
 - what counts or summaries should be checked after a run
 - what correctness indicators should be compared between baseline and optimized
+- what processing metrics should be used when discussing SLA behavior
 
 Why this step matters:
 - the final comparison should not look only at speed and cost
@@ -593,6 +669,8 @@ A useful handoff here should include:
 - what output files or tables should exist after a successful run
 - what record counts are expected approximately
 - what breach indicators should appear in sample cases
+- what latency and progress metrics should be visible in dashboards
+- what values would suggest the pipeline is falling behind or misbehaving
 
 ### Step 15: Protect comparison fairness
 This is one of Aayush's most important responsibilities.
@@ -649,12 +727,14 @@ Aayush's task should be considered complete only when all of the following are t
 - small smoke tests exist for the main processing cases
 - Monty knows how to deploy the jobs
 - Tanish knows what outputs should be checked during evaluation
+- the processing layer exposes the metrics needed for SLA-oriented evaluation
 
 ## Common Mistakes To Avoid
 - building different business logic for baseline and optimized pipelines
 - treating Airflow as the controller for the always-on stream job
 - performing breach detection before enrichment has provided thresholds
 - dropping invalid records without tracking counts or behavior
+- exposing no processing-health metrics and expecting Monty to invent SLA detection later
 - using inconsistent join keys across datasets
 - writing all processed history into Redis instead of keeping it in S3
 - making stream and batch jobs use different meanings for the same field
