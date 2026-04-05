@@ -73,7 +73,7 @@ human teammates to maintain it automatically. The practical way to ensure it sta
 - `Architecture status`: locked
 - `Schema status`: frozen
 - `Folder structure status`: created
-- `Member execution guides status`: Alok, Aayush, and Monty guides created
+- `Member execution guides status`: Alok, Aayush, Monty, and Tanish guides created
 - `Baseline coordination status`: shared coordination plan created
 
 ## Baseline Gate Status
@@ -126,8 +126,9 @@ human teammates to maintain it automatically. The practical way to ensure it sta
 - architecture visual prepared
 - folder structure defined
 - schema freeze and starter artifacts created
-- member execution guides started and shared
+- member execution guides created and shared for all four members
 - baseline coordination flow documented
+- baseline-only Tanish guide created
 
 ### In Progress
 - team coordination
@@ -137,8 +138,8 @@ human teammates to maintain it automatically. The practical way to ensure it sta
 ### Pending
 - end-to-end integration work
 - final baseline freeze sign-off
-- evaluation summary framework
-- optimized comparison framework
+- baseline evidence pack
+- baseline evaluation summary
 
 ### Blocked By
 - runnable replay producer from Alok
@@ -151,6 +152,7 @@ human teammates to maintain it automatically. The practical way to ensure it sta
 - folder structure
 - schema freeze
 - coordination plan
+- Tanish execution guide
 
 ### Next
 - use this file as the central sync board
