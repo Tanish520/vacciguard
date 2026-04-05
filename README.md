@@ -32,7 +32,14 @@ VacciGuard is a cloud data pipeline case study for vaccine cold-chain monitoring
 - [Project Planning/02-phase-3/phase-3-objective-mapping.md](/Users/tanishgupta/Desktop/vacciguard/Project%20Planning/02-phase-3/phase-3-objective-mapping.md): how the stack covers the professor's objectives
 - [Project Planning/02-phase-3/non-functional-requirements/README.md](/Users/tanishgupta/Desktop/vacciguard/Project%20Planning/02-phase-3/non-functional-requirements/README.md): separate non-functional requirement notes
 - [Project Planning/03-architecture/vacciguard-architecture-overview.html](/Users/tanishgupta/Desktop/vacciguard/Project%20Planning/03-architecture/vacciguard-architecture-overview.html): colorful visual overview of the architecture and system working flow
+- [Project Planning/project-folder-structure.md](/Users/tanishgupta/Desktop/vacciguard/Project%20Planning/project-folder-structure.md): implementation folder structure and the purpose of each folder
+- [data/](/Users/tanishgupta/Desktop/vacciguard/data): datasets for lookup, batch, and replay workloads
+- [services/](/Users/tanishgupta/Desktop/vacciguard/services): code for the replay producer and Spark processors
+- [orchestration/](/Users/tanishgupta/Desktop/vacciguard/orchestration): Airflow DAGs and related orchestration config
+- [infra/](/Users/tanishgupta/Desktop/vacciguard/infra): Terraform, Kubernetes, and monitoring setup
+- [tests/](/Users/tanishgupta/Desktop/vacciguard/tests): smoke, workload, and failure validation areas
+- [results/](/Users/tanishgupta/Desktop/vacciguard/results): baseline and optimized experiment outputs
 
 ## Current Status
 
-This repository is starting fresh with the project documentation first. The next steps are to choose the implementation stack, create the initial folder structure, and begin building the data generation and pipeline components.
+This repository now has the planning foundation and the initial implementation folder structure in place. The next steps are to build the replay producer, processing services, deployment configuration, and evaluation workflow inside the new folders.
