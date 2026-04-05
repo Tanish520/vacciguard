@@ -8,6 +8,7 @@
 - [project-folder-structure.md](/Users/tanishgupta/Desktop/vacciguard/Project%20Planning/project-folder-structure.md): recommended implementation folder structure and why each area is needed
 - [baseline-dependency-and-coordination-plan.md](/Users/tanishgupta/Desktop/vacciguard/Project%20Planning/baseline-dependency-and-coordination-plan.md): shared dependency and coordination flow for building the baseline pipeline
 - [project-context.md](/Users/tanishgupta/Desktop/vacciguard/Project%20Planning/project-context.md): live project status board showing what is done, in progress, pending, and blocked for each member
+- [team-guides/tanish-execution-guide.md](/Users/tanishgupta/Desktop/vacciguard/Project%20Planning/team-guides/tanish-execution-guide.md): Tanish's baseline-only guide for integration, freeze control, and baseline sign-off
 
 ## Quick Start
 - Start with [phase-1-problem-statement.md](/Users/tanishgupta/Desktop/vacciguard/Project%20Planning/01-foundation/phase-1-problem-statement.md)
