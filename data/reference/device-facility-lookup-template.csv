@@ -1,0 +1,4 @@
+device_id,facility_id,facility_name,district,state,min_temp_c,max_temp_c,storage_type
+FR-0101,FAC-0001,Clinic A,Jaipur,Rajasthan,2,8,refrigerator
+FR-0102,FAC-0002,Clinic B,Udaipur,Rajasthan,2,8,refrigerator
+FR-0103,FAC-0003,Clinic C,Kota,Rajasthan,2,8,refrigerator

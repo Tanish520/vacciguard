@@ -1,0 +1,3 @@
+{"event_id":"evt-000001","device_id":"FR-0101","event_time":"2026-04-05T10:00:01Z","temperature_c":4.8,"door_open":false,"battery_pct":91,"location_lat":26.9124,"location_lon":75.7873}
+{"event_id":"evt-000002","device_id":"FR-0102","event_time":"2026-04-05T10:00:03Z","temperature_c":9.1,"door_open":true,"battery_pct":67,"location_lat":24.5854,"location_lon":73.7125}
+{"event_id":"evt-000003","device_id":"FR-0103","event_time":"2026-04-05T10:00:05Z","temperature_c":3.2,"door_open":false,"battery_pct":84,"location_lat":25.2138,"location_lon":75.8648}

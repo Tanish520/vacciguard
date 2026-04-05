@@ -1,0 +1,4 @@
+log_date,facility_id,power_outage_minutes,manual_temp_check_count,maintenance_flag,technician_visit_flag,stock_transfer_flag
+2026-04-05,FAC-0001,0,4,false,false,false
+2026-04-05,FAC-0002,35,2,true,true,true
+2026-04-05,FAC-0003,0,4,false,false,false
