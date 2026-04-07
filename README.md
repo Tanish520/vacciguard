@@ -43,3 +43,55 @@ VacciGuard is a cloud data pipeline case study for vaccine cold-chain monitoring
 ## Current Status
 
 This repository now has the planning foundation and the initial implementation folder structure in place. The next steps are to build the replay producer, processing services, deployment configuration, and evaluation workflow inside the new folders.
+
+## Phase 4 Local Runbook
+
+1. Generate the replay workload:
+
+```bash
+python3 scripts/generate-dev-workload.py
+```
+
+2. Start the local services:
+
+```bash
+docker compose up -d kafka redis stream-processor
+```
+
+3. Replay the workload:
+
+```bash
+docker compose run --rm replay-producer
+```
+
+4. Inspect Redis:
+
+```bash
+docker compose exec redis redis-cli GET device:status:FR-0102
+docker compose exec redis redis-cli ZRANGE active_breaches 0 -1 WITHSCORES
+```
+
+5. Inspect cold outputs:
+
+```bash
+find data/output/processed -maxdepth 1 -name '*.parquet' -type f | sort
+find data/output/invalid -maxdepth 1 -name '*.json' -type f | sort
+```
+
+6. Run smoke verification:
+
+```bash
+python3 tests/smoke/verify_phase4.py
+```
+
+7. Use the one-command local helper:
+
+```bash
+bash scripts/run-phase4-local.sh
+```
+
+8. Inspect stream batch summaries:
+
+```bash
+docker compose logs stream-processor | grep "Batch .* summary"
+```
