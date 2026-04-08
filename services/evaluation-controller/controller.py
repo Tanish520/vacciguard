@@ -236,3 +236,16 @@ def build_replay_job_manifest(
             },
         },
     }
+
+
+def render_markdown_report(report_payload: dict[str, object]) -> str:
+    return "\n".join(
+        [
+            f"# Evaluation Report: {report_payload['run_id']}",
+            "",
+            f"- pipeline target: {report_payload['pipeline_target']}",
+            f"- scenario: {report_payload['scenario']}",
+            f"- status: {report_payload['status']}",
+            f"- processed events: {report_payload.get('processed_events', 'n/a')}",
+        ]
+    ) + "\n"
