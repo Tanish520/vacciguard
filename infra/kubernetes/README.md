@@ -3,6 +3,7 @@
 - `base`: shared namespace and common configuration
 - `baseline`: fixed-capacity deployment manifests and overlays
 - `optimized`: reserved for autoscaling and tuning work
+- monitoring resources live under `infra/monitoring/`
 
 Validate with:
 

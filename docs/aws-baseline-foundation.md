@@ -12,6 +12,19 @@
 - monitoring stack rollout
 - optimized deployment behavior
 
+## Monitoring Stack
+
+Monitoring resources are split across `infra/monitoring/cloudwatch`, `infra/monitoring/prometheus`, and `infra/monitoring/grafana`.
+
+CloudWatch and Container Insights provide the AWS-facing observability layer, while Prometheus and Grafana provide the baseline runtime and evaluation visibility we use to inspect the platform during runs.
+
+Before merging changes to the monitoring stack, render the Prometheus and Grafana bundles to confirm the kustomizations still resolve cleanly:
+
+```bash
+kubectl kustomize infra/monitoring/prometheus > /tmp/vacciguard-prometheus.yaml
+kubectl kustomize infra/monitoring/grafana > /tmp/vacciguard-grafana.yaml
+```
+
 ## Validate The Scaffold
 
 ```bash
