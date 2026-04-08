@@ -7,6 +7,12 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class MonitoringManifestTests(unittest.TestCase):
+    def test_aws_baseline_foundation_mentions_monitoring_stack(self):
+        raw = (ROOT / "docs/aws-baseline-foundation.md").read_text(encoding="utf-8")
+        self.assertIn("Monitoring Stack", raw)
+        self.assertIn("infra/monitoring/prometheus", raw)
+        self.assertIn("infra/monitoring/grafana", raw)
+
     def test_monitoring_overview_readme_mentions_stack_split(self):
         raw = (ROOT / "infra/monitoring/README.md").read_text(encoding="utf-8")
         self.assertIn("CloudWatch", raw)
