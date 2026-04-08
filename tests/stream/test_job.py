@@ -137,11 +137,21 @@ class StreamMetricsRegistryTests(unittest.TestCase):
             avg_latency_seconds=1.5,
             p95_latency_seconds=2.0,
         )
+        registry.update_batch_metrics(
+            batch_id=4,
+            processed_count=2,
+            invalid_count=3,
+            deduplicated_count=1,
+            breach_count=0,
+            avg_latency_seconds=0.75,
+            p95_latency_seconds=1.25,
+        )
 
         rendered = registry.render_prometheus()
 
-        self.assertIn("vacciguard_stream_latest_batch_id 3", rendered)
-        self.assertIn("vacciguard_stream_processed_events_total 5", rendered)
+        self.assertIn("vacciguard_stream_latest_batch_id 4", rendered)
+        self.assertIn("vacciguard_stream_processed_events_total 7", rendered)
+        self.assertIn("vacciguard_stream_invalid_events_total 4", rendered)
 
 
 class BatchSummaryBehaviorTests(unittest.TestCase):
