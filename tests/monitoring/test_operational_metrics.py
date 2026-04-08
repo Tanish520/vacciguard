@@ -159,12 +159,17 @@ class ReplayOperationalMetricsTests(unittest.TestCase):
         self.assertIn("vacciguard_replay_configured_rate_events_per_second 0.0", initial_rendered)
         self.assertIn("vacciguard_replay_duration_seconds 0.0", initial_rendered)
         self.assertIn("vacciguard_replay_completion_status 0", initial_rendered)
+        self.assertIn("vacciguard_replay_completion_timestamp_seconds 0.0", initial_rendered)
         self.assertTrue(initial_rendered.endswith("\n"))
 
         registry.record_loaded_events(4)
         registry.record_sent_event()
         registry.record_sent_event()
-        registry.record_completion(duration_seconds=2.5, configured_events_per_second=5.0)
+        registry.record_completion(
+            duration_seconds=2.5,
+            configured_events_per_second=5.0,
+            completion_timestamp_seconds=1712664000.0,
+        )
 
         rendered = registry.render_prometheus()
 
@@ -173,13 +178,18 @@ class ReplayOperationalMetricsTests(unittest.TestCase):
         self.assertIn("vacciguard_replay_configured_rate_events_per_second 5.0", rendered)
         self.assertIn("vacciguard_replay_duration_seconds 2.5", rendered)
         self.assertIn("vacciguard_replay_completion_status 1", rendered)
+        self.assertIn("vacciguard_replay_completion_timestamp_seconds 1712664000.0", rendered)
         self.assertTrue(rendered.endswith("\n"))
 
     def test_replay_metrics_begin_run_resets_terminal_values_and_sets_rate(self):
         registry = replay_producer.ReplayMetricsRegistry()
         registry.record_loaded_events(4)
         registry.record_sent_event()
-        registry.record_completion(duration_seconds=2.5, configured_events_per_second=5.0)
+        registry.record_completion(
+            duration_seconds=2.5,
+            configured_events_per_second=5.0,
+            completion_timestamp_seconds=1712664000.0,
+        )
 
         registry.begin_run(configured_events_per_second=8.0)
         rendered = registry.render_prometheus()
@@ -189,6 +199,7 @@ class ReplayOperationalMetricsTests(unittest.TestCase):
         self.assertIn("vacciguard_replay_configured_rate_events_per_second 8.0", rendered)
         self.assertIn("vacciguard_replay_duration_seconds 0.0", rendered)
         self.assertIn("vacciguard_replay_completion_status 0", rendered)
+        self.assertIn("vacciguard_replay_completion_timestamp_seconds 0.0", rendered)
 
 
 class ReplayLifecycleTests(unittest.TestCase):
@@ -213,7 +224,7 @@ class ReplayLifecycleTests(unittest.TestCase):
 
         with patch.object(replay_producer.time, "sleep"), patch.object(
             replay_producer.time, "monotonic", side_effect=clock.monotonic
-        ):
+        ), patch.object(replay_producer.time, "time", return_value=1712664000.0):
             replay_producer.replay(producer, events, 4.0, metrics_registry=registry)
 
         rendered = registry.render_prometheus()
@@ -222,6 +233,7 @@ class ReplayLifecycleTests(unittest.TestCase):
         self.assertIn("vacciguard_replay_configured_rate_events_per_second 4.0", rendered)
         self.assertIn("vacciguard_replay_duration_seconds 0.5", rendered)
         self.assertIn("vacciguard_replay_completion_status 1", rendered)
+        self.assertIn("vacciguard_replay_completion_timestamp_seconds 1712664000.0", rendered)
         ack_future_one.get.assert_called_once()
         ack_future_two.get.assert_called_once()
         producer.flush.assert_called_once_with()
@@ -235,7 +247,9 @@ class ReplayLifecycleTests(unittest.TestCase):
         events = [{"event_id": "a"}]
         clock = self.FakeClock(50.0, 50.0, 50.25)
 
-        with patch.object(replay_producer.time, "monotonic", side_effect=clock.monotonic):
+        with patch.object(replay_producer.time, "monotonic", side_effect=clock.monotonic), patch.object(
+            replay_producer.time, "time", return_value=1712664300.0
+        ):
             with self.assertRaises(RuntimeError):
                 replay_producer.replay(producer, events, 6.0, metrics_registry=registry)
 
@@ -245,6 +259,7 @@ class ReplayLifecycleTests(unittest.TestCase):
         self.assertIn("vacciguard_replay_configured_rate_events_per_second 6.0", rendered)
         self.assertIn("vacciguard_replay_duration_seconds 0.25", rendered)
         self.assertIn("vacciguard_replay_completion_status 2", rendered)
+        self.assertIn("vacciguard_replay_completion_timestamp_seconds 1712664300.0", rendered)
         producer.flush.assert_not_called()
 
 
@@ -253,7 +268,11 @@ class ReplayMetricsHttpHandlerTests(unittest.TestCase):
         registry = replay_producer.ReplayMetricsRegistry()
         registry.record_loaded_events(3)
         registry.record_sent_event()
-        registry.record_completion(duration_seconds=1.75, configured_events_per_second=7.5)
+        registry.record_completion(
+            duration_seconds=1.75,
+            configured_events_per_second=7.5,
+            completion_timestamp_seconds=1712664400.0,
+        )
 
         payload = replay_producer.metrics_http_payload(registry)
 
@@ -262,6 +281,7 @@ class ReplayMetricsHttpHandlerTests(unittest.TestCase):
         self.assertIn("vacciguard_replay_sent_events_total 1", payload)
         self.assertIn("vacciguard_replay_configured_rate_events_per_second 7.5", payload)
         self.assertIn("vacciguard_replay_completion_status 1", payload)
+        self.assertIn("vacciguard_replay_completion_timestamp_seconds 1712664400.0", payload)
 
     def test_replay_metrics_server_serves_metrics_and_404s_other_paths(self):
         registry = replay_producer.ReplayMetricsRegistry()
@@ -285,6 +305,7 @@ class ReplayMetricsHttpHandlerTests(unittest.TestCase):
             self.assertIn("vacciguard_replay_sent_events_total 2", payload)
             self.assertIn("vacciguard_replay_configured_rate_events_per_second 4.0", payload)
             self.assertIn("vacciguard_replay_completion_status 1", payload)
+            self.assertIn("vacciguard_replay_completion_timestamp_seconds", payload)
 
             with self.assertRaises(urllib.error.HTTPError) as exc_info:
                 urllib.request.urlopen(missing_url, timeout=2)
