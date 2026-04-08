@@ -19,6 +19,7 @@ import os
 import threading
 import time
 from datetime import datetime
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 import redis
@@ -90,6 +91,7 @@ LOCAL_SPARK_JARS = os.environ.get(
         ]
     ),
 )
+STREAM_METRICS_PORT = int(os.environ.get("STREAM_METRICS_PORT", "9108"))
 
 
 def summarize_batch_counts(
@@ -157,6 +159,36 @@ class StreamMetricsRegistry:
         with self._lock:
             snapshot = tuple(self._metrics.items())
         return "\n".join(f"{name} {value}" for name, value in snapshot) + "\n"
+
+
+STREAM_METRICS_REGISTRY = StreamMetricsRegistry()
+
+
+def metrics_http_payload(registry: StreamMetricsRegistry) -> str:
+    return registry.render_prometheus()
+
+
+def start_metrics_server(port: int, registry: StreamMetricsRegistry) -> HTTPServer:
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            if self.path != "/metrics":
+                self.send_response(404)
+                self.end_headers()
+                return
+
+            payload = metrics_http_payload(registry).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; version=0.0.4")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+        def log_message(self, format: str, *args) -> None:
+            return
+
+    server = HTTPServer(("0.0.0.0", port), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
 
 
 def build_breach_windows(processed: DataFrame) -> DataFrame:
@@ -644,6 +676,15 @@ def write_batch_summary(batch_df: DataFrame, batch_id: int) -> None:
             p95_end_to_end_latency_seconds=p95_end_to_end_latency_seconds,
         )
     )
+    STREAM_METRICS_REGISTRY.update_batch_metrics(
+        batch_id=batch_id,
+        processed_count=processed_count,
+        invalid_count=invalid_count,
+        deduplicated_count=deduplicated_count,
+        breach_count=breach_count,
+        avg_latency_seconds=avg_end_to_end_latency_seconds,
+        p95_latency_seconds=p95_end_to_end_latency_seconds,
+    )
 
 
 def start_queries(processed: DataFrame, invalid: DataFrame, classified: DataFrame):
@@ -672,13 +713,18 @@ def start_queries(processed: DataFrame, invalid: DataFrame, classified: DataFram
 def main() -> None:
     ensure_local_paths()
     ensure_kafka_topic()
+    metrics_server = start_metrics_server(STREAM_METRICS_PORT, STREAM_METRICS_REGISTRY)
     spark = build_spark()
     spark.sparkContext.setLogLevel(os.environ.get("SPARK_LOG_LEVEL", "WARN"))
 
     processed, invalid, classified = build_stream(spark)
     queries = start_queries(processed, invalid, classified)
 
-    log.info("Stream processor is running with %d active queries", len(queries))
+    log.info(
+        "Stream processor is running with %d active queries and metrics on port %d",
+        len(queries),
+        metrics_server.server_address[1],
+    )
     spark.streams.awaitAnyTermination()
 
 

@@ -17,6 +17,9 @@ spec:
         - name: stream-processor
           image: 347038623570.dkr.ecr.ap-south-1.amazonaws.com/vacciguard-stream-processor:baseline-bundled-20260408
           imagePullPolicy: Always
+          ports:
+            - name: metrics
+              containerPort: 9108
           volumeMounts:
             - name: lookup-data
               mountPath: /data/reference

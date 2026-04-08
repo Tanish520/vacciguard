@@ -348,6 +348,73 @@ class BatchSummaryBehaviorTests(unittest.TestCase):
         self.assertEqual(summary["avg_end_to_end_latency_seconds"], 1.5)
         self.assertEqual(summary["p95_end_to_end_latency_seconds"], 2.0)
 
+    def test_write_batch_summary_updates_stream_metrics_registry(self):
+        batch_schema = T.StructType(
+            [
+                T.StructField("device_id", T.StringType(), True),
+                T.StructField("event_id", T.StringType(), True),
+                T.StructField("replay_sent_at", T.StringType(), True),
+                T.StructField("temperature_c", T.DoubleType(), True),
+                T.StructField("invalid_reason", T.StringType(), True),
+            ]
+        )
+        batch_df = self.spark.createDataFrame(
+            [
+                {
+                    "device_id": "FR-0102",
+                    "event_id": "evt-001",
+                    "replay_sent_at": None,
+                    "temperature_c": 4.0,
+                    "invalid_reason": None,
+                },
+                {
+                    "device_id": "FR-0102",
+                    "event_id": "evt-001",
+                    "replay_sent_at": None,
+                    "temperature_c": 9.5,
+                    "invalid_reason": None,
+                },
+                {
+                    "device_id": "FR-0102",
+                    "event_id": "evt-002",
+                    "replay_sent_at": None,
+                    "temperature_c": 4.0,
+                    "invalid_reason": "corrupt_json",
+                },
+            ],
+            schema=batch_schema,
+        )
+        lookup_df = self.spark.createDataFrame(
+            [
+                {
+                    "device_id": "FR-0102",
+                    "facility_id": "FAC-0002",
+                    "facility_name": "Clinic B",
+                    "district": "Udaipur",
+                    "state": "Rajasthan",
+                    "min_temp_c": 2.0,
+                    "max_temp_c": 8.0,
+                    "storage_type": "refrigerator",
+                }
+            ],
+            schema=stream_job.LOOKUP_SCHEMA,
+        )
+
+        with patch.object(stream_job, "load_lookup", return_value=lookup_df), patch.object(
+            stream_job, "STREAM_METRICS_REGISTRY"
+        ) as mock_registry:
+            stream_job.write_batch_summary(batch_df, batch_id=14)
+
+        mock_registry.update_batch_metrics.assert_called_once_with(
+            batch_id=14,
+            processed_count=1,
+            invalid_count=1,
+            deduplicated_count=1,
+            breach_count=0,
+            avg_latency_seconds=None,
+            p95_latency_seconds=None,
+        )
+
     def test_build_breach_windows_aggregates_breach_rate_by_window(self):
         processed = self.spark.createDataFrame(
             [
