@@ -9,10 +9,13 @@ SCENARIO="${2:-normal}"
 RUN_ID="${3:-$(date -u +%Y%m%dT%H%M%SZ)}"
 JOB_NAME="evaluation-controller-$(printf '%s' "$RUN_ID" | tr '[:upper:]' '[:lower:]')"
 
+eval "$(aws configure export-credentials --format env)"
+
 TEMPLATE_JSON="$(kubectl create --dry-run=client -f infra/kubernetes/base/job-evaluation-controller.yaml -o json)"
 
 python3 - "$TEMPLATE_JSON" "$JOB_NAME" "$PIPELINE_TARGET" "$SCENARIO" "$RUN_ID" <<'PY' | kubectl apply -f - >/dev/null
 import json
+import os
 import sys
 
 template = json.loads(sys.argv[1])
@@ -32,6 +35,12 @@ for item in template["spec"]["template"]["spec"]["containers"][0]["env"]:
         item["value"] = scenario
     elif item["name"] == "RUN_ID":
         item["value"] = run_id
+
+env = template["spec"]["template"]["spec"]["containers"][0]["env"]
+for name in ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"):
+    value = os.environ.get(name)
+    if value:
+        env.append({"name": name, "value": value})
 
 print(json.dumps(template))
 PY

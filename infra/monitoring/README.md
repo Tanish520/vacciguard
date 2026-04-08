@@ -71,3 +71,6 @@ kubectl kustomize infra/monitoring/grafana > /tmp/vacciguard-grafana.yaml
 ```
 
 Important caveat: the replay producer is a short-lived Kubernetes Job, so its metrics are only scrapeable while the job pod still exists. The replay image keeps a short post-run drain window through `REPLAY_METRICS_DRAIN_SECONDS` so the final completion status is still visible to Prometheus and Grafana.
+
+Prometheus and Grafana remain the live observability layer during AWS-native evaluation runs.
+The evaluation controller does not replace monitoring. It executes the run inside EKS and writes the formal report to S3 after the run completes.

@@ -58,6 +58,28 @@ The first operational dashboard, `VacciGuard Baseline Overview`, is backed by th
 
 Important caveat: replay producer metrics are job-scoped. The replay completion panel is reliable while the replay pod is still present, but those metrics disappear when Kubernetes garbage-collects the finished job pod. The baseline job keeps a short drain window through `REPLAY_METRICS_DRAIN_SECONDS` so Prometheus and Grafana have time to scrape the final completion metrics before the pod exits.
 
+## AWS-Native Evaluation
+
+Use the in-cluster evaluation controller to run AWS-native experiments for either pipeline target:
+
+```bash
+bash scripts/run-aws-evaluation-controller.sh baseline normal
+bash scripts/run-aws-evaluation-controller.sh optimized spike
+```
+
+Each run stores its evidence under:
+
+- `s3://<bucket>/evaluations/<pipeline-target>/<scenario>/<run-id>/`
+
+with:
+
+- `processed/`
+- `invalid/`
+- `breach_windows/`
+- `checkpoints/`
+- `report.md`
+- `report.json`
+
 ## Validate The Scaffold
 
 ```bash
