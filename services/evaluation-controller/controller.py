@@ -6,7 +6,17 @@ import re
 
 VALID_PIPELINE_TARGETS = {"baseline", "optimized"}
 VALID_SCENARIOS = {"normal", "spike", "failure-recovery"}
-RUN_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
+RUN_ID_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$")
+MAX_WORKLOAD_CONFIGMAP_BYTES = 900 * 1024
+MAX_KUBERNETES_NAME_LENGTH = 63
+WORKLOAD_CONFIGMAP_BASE_NAME = "vacciguard-workload"
+REPLAY_JOB_BASE_NAME = "replay-producer"
+REPLAY_JOB_METRICS_PORT = 9109
+MAX_RUN_ID_LENGTH = min(
+    MAX_KUBERNETES_NAME_LENGTH,
+    MAX_KUBERNETES_NAME_LENGTH - len(f"{WORKLOAD_CONFIGMAP_BASE_NAME}-"),
+    MAX_KUBERNETES_NAME_LENGTH - len(f"{REPLAY_JOB_BASE_NAME}-"),
+)
 RESERVED_REPORT_KEYS = {
     "pipeline_target",
     "scenario",
@@ -37,7 +47,11 @@ class RunContract:
 
 def normalize_run_id(run_id: str) -> str:
     normalized = run_id.strip().lower()
-    if not normalized or not RUN_ID_PATTERN.fullmatch(normalized):
+    if (
+        not normalized
+        or len(normalized) > MAX_RUN_ID_LENGTH
+        or not RUN_ID_PATTERN.fullmatch(normalized)
+    ):
         raise ValueError(f"Invalid run_id: {run_id}")
     return normalized
 
@@ -87,3 +101,138 @@ def build_report_payload(
     payload["status"] = status
     payload["failure_reason"] = failure_reason
     return payload
+
+
+def build_workload_configmap_manifest(
+    *, contract: RunContract, workload_ndjson: str
+) -> dict[str, object]:
+    workload_size = len(workload_ndjson.encode("utf-8"))
+    if workload_size > MAX_WORKLOAD_CONFIGMAP_BYTES:
+        raise ValueError(
+            "Workload ConfigMap content is too large: "
+            f"{workload_size} bytes exceeds the {MAX_WORKLOAD_CONFIGMAP_BYTES} byte limit"
+        )
+
+    return {
+        "apiVersion": "v1",
+        "kind": "ConfigMap",
+        "metadata": {
+            "name": f"{WORKLOAD_CONFIGMAP_BASE_NAME}-{contract.run_id}",
+            "namespace": "vacciguard",
+        },
+        "data": {"events.ndjson": workload_ndjson},
+    }
+
+
+def build_pipeline_config_patch(
+    *,
+    contract: RunContract,
+    app_name: str,
+    kafka_bootstrap_servers: str,
+    kafka_topic_partitions: str,
+    trigger_interval: str,
+    watermark_delay: str,
+    redis_host: str,
+    redis_port: str,
+    redis_db: str,
+) -> dict[str, object]:
+    prefix = f"s3a://{contract.bucket_name}/{contract.s3_prefix}"
+    return {
+        "apiVersion": "v1",
+        "kind": "ConfigMap",
+        "metadata": {
+            "name": "vacciguard-pipeline-config",
+            "namespace": "vacciguard",
+        },
+        "data": {
+            "APP_NAME": app_name,
+            "KAFKA_TOPIC": contract.kafka_topic,
+            "KAFKA_BOOTSTRAP_SERVERS": kafka_bootstrap_servers,
+            "KAFKA_TOPIC_PARTITIONS": kafka_topic_partitions,
+            "KAFKA_STARTING_OFFSETS": "earliest",
+            "TRIGGER_INTERVAL": trigger_interval,
+            "WATERMARK_DELAY": watermark_delay,
+            "REDIS_HOST": redis_host,
+            "REDIS_PORT": redis_port,
+            "REDIS_DB": redis_db,
+            "PROCESSED_OUTPUT_PATH": f"{prefix}/processed",
+            "INVALID_OUTPUT_PATH": f"{prefix}/invalid",
+            "BREACH_WINDOW_OUTPUT_PATH": f"{prefix}/breach_windows",
+            "CHECKPOINT_ROOT": f"{prefix}/checkpoints",
+        },
+    }
+
+
+def build_replay_job_manifest(
+    *,
+    contract: RunContract,
+    replay_image: str,
+    kafka_bootstrap_servers: str,
+    workload_configmap_name: str,
+    target_eps: float,
+) -> dict[str, object]:
+    return {
+        "apiVersion": "batch/v1",
+        "kind": "Job",
+        "metadata": {
+            "name": f"{REPLAY_JOB_BASE_NAME}-{contract.run_id}",
+            "namespace": "vacciguard",
+        },
+        "spec": {
+            "backoffLimit": 0,
+            "template": {
+                "metadata": {
+                    "labels": {
+                        "app": REPLAY_JOB_BASE_NAME,
+                        "job_name": REPLAY_JOB_BASE_NAME,
+                        "run_id": contract.run_id,
+                    }
+                },
+                "spec": {
+                    "serviceAccountName": "vacciguard-pipeline",
+                    "restartPolicy": "Never",
+                    "containers": [
+                        {
+                            "name": REPLAY_JOB_BASE_NAME,
+                            "image": replay_image,
+                            "imagePullPolicy": "Always",
+                            "ports": [
+                                {
+                                    "name": "metrics",
+                                    "containerPort": REPLAY_JOB_METRICS_PORT,
+                                }
+                            ],
+                            "env": [
+                                {
+                                    "name": "KAFKA_BOOTSTRAP_SERVERS",
+                                    "value": kafka_bootstrap_servers,
+                                },
+                                {"name": "KAFKA_TOPIC", "value": contract.kafka_topic},
+                                {
+                                    "name": "WORKLOAD_FILE",
+                                    "value": "/data/workloads/evaluation/events.ndjson",
+                                },
+                                {
+                                    "name": "EVENTS_PER_SECOND",
+                                    "value": str(target_eps),
+                                },
+                                {"name": "LOOP", "value": "false"},
+                            ],
+                            "volumeMounts": [
+                                {
+                                    "name": "workload",
+                                    "mountPath": "/data/workloads/evaluation",
+                                }
+                            ],
+                        }
+                    ],
+                    "volumes": [
+                        {
+                            "name": "workload",
+                            "configMap": {"name": workload_configmap_name},
+                        }
+                    ],
+                }
+            },
+        },
+    }
