@@ -191,6 +191,13 @@ def start_metrics_server(port: int, registry: StreamMetricsRegistry) -> HTTPServ
     return server
 
 
+def stop_metrics_server(server: HTTPServer | None) -> None:
+    if server is None:
+        return
+    server.shutdown()
+    server.server_close()
+
+
 def build_breach_windows(processed: DataFrame) -> DataFrame:
     return (
         processed.groupBy(
@@ -711,21 +718,25 @@ def start_queries(processed: DataFrame, invalid: DataFrame, classified: DataFram
 
 
 def main() -> None:
-    ensure_local_paths()
-    ensure_kafka_topic()
-    metrics_server = start_metrics_server(STREAM_METRICS_PORT, STREAM_METRICS_REGISTRY)
-    spark = build_spark()
-    spark.sparkContext.setLogLevel(os.environ.get("SPARK_LOG_LEVEL", "WARN"))
+    metrics_server = None
+    try:
+        ensure_local_paths()
+        ensure_kafka_topic()
+        metrics_server = start_metrics_server(STREAM_METRICS_PORT, STREAM_METRICS_REGISTRY)
+        spark = build_spark()
+        spark.sparkContext.setLogLevel(os.environ.get("SPARK_LOG_LEVEL", "WARN"))
 
-    processed, invalid, classified = build_stream(spark)
-    queries = start_queries(processed, invalid, classified)
+        processed, invalid, classified = build_stream(spark)
+        queries = start_queries(processed, invalid, classified)
 
-    log.info(
-        "Stream processor is running with %d active queries and metrics on port %d",
-        len(queries),
-        metrics_server.server_address[1],
-    )
-    spark.streams.awaitAnyTermination()
+        log.info(
+            "Stream processor is running with %d active queries and metrics on port %d",
+            len(queries),
+            metrics_server.server_address[1],
+        )
+        spark.streams.awaitAnyTermination()
+    finally:
+        stop_metrics_server(metrics_server)
 
 
 if __name__ == "__main__":

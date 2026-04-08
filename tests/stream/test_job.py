@@ -4,7 +4,7 @@ import tempfile
 import threading
 import unittest
 import uuid
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
@@ -209,6 +209,52 @@ class StreamMetricsRegistryTests(unittest.TestCase):
         self.assertIn("vacciguard_stream_latest_batch_id 4", rendered)
         self.assertIn("vacciguard_stream_processed_events_total 7", rendered)
         self.assertIn("vacciguard_stream_invalid_events_total 4", rendered)
+
+
+class MainLifecycleTests(unittest.TestCase):
+    def test_main_shuts_down_metrics_server_when_startup_fails(self):
+        metrics_server = Mock()
+        metrics_server.server_address = ("0.0.0.0", 9108)
+        startup_error = RuntimeError("spark bootstrap failed")
+
+        with patch.object(stream_job, "ensure_local_paths"), patch.object(
+            stream_job, "ensure_kafka_topic"
+        ), patch.object(
+            stream_job, "start_metrics_server", return_value=metrics_server
+        ), patch.object(
+            stream_job, "build_spark", side_effect=startup_error
+        ):
+            with self.assertRaises(RuntimeError) as exc_info:
+                stream_job.main()
+
+        self.assertIs(exc_info.exception, startup_error)
+        metrics_server.shutdown.assert_called_once_with()
+        metrics_server.server_close.assert_called_once_with()
+
+    def test_main_shuts_down_metrics_server_after_stream_termination(self):
+        metrics_server = Mock()
+        metrics_server.server_address = ("0.0.0.0", 9108)
+        spark = Mock()
+
+        with patch.object(stream_job, "ensure_local_paths"), patch.object(
+            stream_job, "ensure_kafka_topic"
+        ), patch.object(
+            stream_job, "start_metrics_server", return_value=metrics_server
+        ), patch.object(
+            stream_job, "build_spark", return_value=spark
+        ), patch.object(
+            stream_job, "build_stream", return_value=("processed", "invalid", "classified")
+        ), patch.object(
+            stream_job, "start_queries", return_value=["query"]
+        ):
+            stream_job.main()
+
+        spark.sparkContext.setLogLevel.assert_called_once_with(
+            stream_job.os.environ.get("SPARK_LOG_LEVEL", "WARN")
+        )
+        spark.streams.awaitAnyTermination.assert_called_once_with()
+        metrics_server.shutdown.assert_called_once_with()
+        metrics_server.server_close.assert_called_once_with()
 
 
 class BatchSummaryBehaviorTests(unittest.TestCase):
