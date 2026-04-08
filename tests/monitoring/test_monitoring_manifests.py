@@ -41,6 +41,7 @@ def parse_prometheus_scrape_jobs():
                 "source_labels": parse_inline_list(line.split(": ", 1)[1]),
                 "action": None,
                 "regex": None,
+                "target_label": None,
             }
             current_job["relabel_configs"].append(current_relabel)
             continue
@@ -54,6 +55,10 @@ def parse_prometheus_scrape_jobs():
 
         if line.startswith("        regex: "):
             current_relabel["regex"] = line.split(": ", 1)[1]
+            continue
+
+        if line.startswith("        target_label: "):
+            current_relabel["target_label"] = line.split(": ", 1)[1]
 
     return jobs
 
@@ -83,6 +88,16 @@ def relabel_config(job: dict[str, object], source_labels: list[str]) -> dict[str
         if config["source_labels"] == source_labels:
             return config
     raise AssertionError(f"Missing relabel config for source_labels={source_labels} in {job['job_name']}")
+
+
+def pod_target_relabel(job: dict[str, object]) -> dict[str, object]:
+    for config in job["relabel_configs"]:
+        if (
+            config["source_labels"] == ["__meta_kubernetes_pod_name"]
+            and config["target_label"] == "pod"
+        ):
+            return config
+    raise AssertionError(f"Missing pod target relabel in {job['job_name']}")
 
 
 class MonitoringManifestTests(unittest.TestCase):
@@ -127,6 +142,9 @@ class MonitoringManifestTests(unittest.TestCase):
         stream_app = relabel_config(jobs["stream-processor-metrics"], ["__meta_kubernetes_pod_label_app"])
         self.assertEqual(stream_app["action"], "keep")
         self.assertEqual(stream_app["regex"], "stream-processor")
+        stream_pod = pod_target_relabel(jobs["stream-processor-metrics"])
+        self.assertIsNone(stream_pod["action"])
+        self.assertIsNone(stream_pod["regex"])
 
         replay_phase = relabel_config(
             jobs["replay-producer-metrics"], ["__meta_kubernetes_pod_phase"]
@@ -145,6 +163,9 @@ class MonitoringManifestTests(unittest.TestCase):
         )
         self.assertEqual(replay_job["action"], "keep")
         self.assertEqual(replay_job["regex"], "replay-producer")
+        replay_pod = pod_target_relabel(jobs["replay-producer-metrics"])
+        self.assertIsNone(replay_pod["action"])
+        self.assertIsNone(replay_pod["regex"])
 
     def test_baseline_dashboard_uses_real_pipeline_metrics(self):
         dashboard = load_embedded_grafana_dashboard()
@@ -178,6 +199,7 @@ class MonitoringManifestTests(unittest.TestCase):
         self.assertIn("vacciguard_replay_completion_status", replay_status_expr)
         self.assertIn("timestamp(vacciguard_replay_completion_status)", replay_status_expr)
         self.assertIn("topk(1", replay_status_expr)
+        self.assertIn("max by (pod)", replay_status_expr)
         self.assertIn("on(pod)", replay_status_expr)
         self.assertIn(" and ", replay_status_expr)
         self.assertNotIn(" * on(pod)", replay_status_expr)
