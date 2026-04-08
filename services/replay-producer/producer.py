@@ -18,7 +18,9 @@ import logging
 import os
 import time
 import json
+import threading
 from datetime import datetime, timezone
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from kafka import KafkaProducer
 from kafka.errors import NoBrokersAvailable
@@ -39,6 +41,80 @@ WORKLOAD_FILE           = os.environ["WORKLOAD_FILE"]
 KAFKA_TOPIC             = os.environ.get("KAFKA_TOPIC", "vacciguard-telemetry")
 EVENTS_PER_SECOND       = float(os.environ.get("EVENTS_PER_SECOND", "5.0"))
 LOOP                    = os.environ.get("LOOP", "false").lower() == "true"
+REPLAY_METRICS_PORT     = int(os.environ.get("REPLAY_METRICS_PORT", "9109"))
+
+
+class ReplayMetricsRegistry:
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._metrics = {
+            "vacciguard_replay_events_loaded_total": 0,
+            "vacciguard_replay_events_sent_total": 0,
+            "vacciguard_replay_last_run_duration_seconds": 0.0,
+            "vacciguard_replay_last_run_completion_state": "idle",
+        }
+
+    def record_loaded_events(self, event_count):
+        with self._lock:
+            self._metrics["vacciguard_replay_events_loaded_total"] = event_count
+
+    def increment_sent_count(self, count=1):
+        with self._lock:
+            self._metrics["vacciguard_replay_events_sent_total"] += count
+
+    def complete_run(self, *, duration_seconds, completion_state):
+        with self._lock:
+            self._metrics["vacciguard_replay_last_run_duration_seconds"] = duration_seconds
+            self._metrics["vacciguard_replay_last_run_completion_state"] = completion_state
+
+    def render_prometheus(self):
+        with self._lock:
+            snapshot = tuple(self._metrics.items())
+
+        lines = []
+        for name, value in snapshot:
+            if name == "vacciguard_replay_last_run_completion_state":
+                lines.append(f'{name}{{state="{value}"}} 1')
+            else:
+                lines.append(f"{name} {value}")
+        return "\n".join(lines) + "\n"
+
+
+REPLAY_METRICS_REGISTRY = ReplayMetricsRegistry()
+
+
+def metrics_http_payload(registry):
+    return registry.render_prometheus()
+
+
+def start_metrics_server(port, registry):
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path != "/metrics":
+                self.send_response(404)
+                self.end_headers()
+                return
+
+            payload = metrics_http_payload(registry).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; version=0.0.4")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+        def log_message(self, format, *args):
+            return
+
+    server = HTTPServer(("0.0.0.0", port), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
+
+
+def stop_metrics_server(server):
+    if server is None:
+        return
+    server.shutdown()
+    server.server_close()
 
 # ── Kafka connection ──────────────────────────────────────────────────────────
 
@@ -88,7 +164,7 @@ def encode_event_payload(event, sent_at=None):
 
 # ── Replay ────────────────────────────────────────────────────────────────────
 
-def replay(producer, events, eps):
+def replay(producer, events, eps, metrics_registry=None):
     """
     Publish all events at the target rate using next-send-time scheduling.
 
@@ -101,25 +177,39 @@ def replay(producer, events, eps):
     start     = time.monotonic()
     next_send = start
 
-    for event in events:
-        # wait until the scheduled send time
-        now = time.monotonic()
-        gap = next_send - now
-        if gap > 0:
-            time.sleep(gap)
+    completion_state = "completed"
+    try:
+        for event in events:
+            # wait until the scheduled send time
+            now = time.monotonic()
+            gap = next_send - now
+            if gap > 0:
+                time.sleep(gap)
 
-        payload = encode_event_payload(event)
-        producer.send(KAFKA_TOPIC, value=payload)
-        sent     += 1
-        next_send = start + sent * interval
+            payload = encode_event_payload(event)
+            producer.send(KAFKA_TOPIC, value=payload)
+            sent     += 1
+            if metrics_registry is not None:
+                metrics_registry.increment_sent_count()
+            next_send = start + sent * interval
 
-        if sent % 50 == 0 or sent == total:
-            elapsed    = time.monotonic() - start
-            actual_eps = sent / elapsed if elapsed > 0 else 0
-            log.info("Sent %d/%d  actual %.1f eps", sent, total, actual_eps)
+            if sent % 50 == 0 or sent == total:
+                elapsed    = time.monotonic() - start
+                actual_eps = sent / elapsed if elapsed > 0 else 0
+                log.info("Sent %d/%d  actual %.1f eps", sent, total, actual_eps)
 
-    producer.flush()
-    elapsed = time.monotonic() - start
+        producer.flush()
+    except Exception:
+        completion_state = "failed"
+        raise
+    finally:
+        elapsed = time.monotonic() - start
+        if metrics_registry is not None:
+            metrics_registry.complete_run(
+                duration_seconds=elapsed,
+                completion_state=completion_state,
+            )
+
     log.info(
         "Replay complete: %d events in %.1fs  avg %.1f eps",
         sent, elapsed, sent / elapsed,
@@ -133,21 +223,33 @@ def main():
         WORKLOAD_FILE, EVENTS_PER_SECOND, KAFKA_TOPIC, LOOP,
     )
 
-    events   = load_events(WORKLOAD_FILE)
-    log.info("Loaded %d events", len(events))
+    metrics_server = start_metrics_server(REPLAY_METRICS_PORT, REPLAY_METRICS_REGISTRY)
+    producer = None
 
-    producer = connect()
+    try:
+        events = load_events(WORKLOAD_FILE)
+        REPLAY_METRICS_REGISTRY.record_loaded_events(len(events))
+        log.info("Loaded %d events", len(events))
 
-    run = 0
-    while True:
-        run += 1
-        log.info("--- Run %d ---", run)
-        replay(producer, events, EVENTS_PER_SECOND)
-        if not LOOP:
-            break
+        producer = connect()
 
-    producer.close()
-    log.info("Producer finished")
+        run = 0
+        while True:
+            run += 1
+            log.info("--- Run %d ---", run)
+            replay(
+                producer,
+                events,
+                EVENTS_PER_SECOND,
+                metrics_registry=REPLAY_METRICS_REGISTRY,
+            )
+            if not LOOP:
+                break
+    finally:
+        if producer is not None:
+            producer.close()
+            log.info("Producer finished")
+        stop_metrics_server(metrics_server)
 
 
 if __name__ == "__main__":
