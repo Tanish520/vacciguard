@@ -1,7 +1,16 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from pathlib import Path
 import re
+import sys
+
+
+CURRENT_DIR = Path(__file__).resolve().parent
+if str(CURRENT_DIR) not in sys.path:
+    sys.path.insert(0, str(CURRENT_DIR))
+
+import aws_baseline_metrics
 
 
 VALID_PIPELINE_TARGETS = {"baseline", "optimized"}
@@ -101,6 +110,14 @@ def build_report_payload(
     payload["status"] = status
     payload["failure_reason"] = failure_reason
     return payload
+
+
+def extract_metrics_from_logs(
+    replay_logs: str, stream_logs: str, metadata: dict[str, object]
+) -> dict[str, object]:
+    metrics = aws_baseline_metrics.extract_metrics(replay_logs, stream_logs)
+    metrics.update(metadata)
+    return metrics
 
 
 def build_workload_configmap_manifest(

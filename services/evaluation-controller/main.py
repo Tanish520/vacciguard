@@ -23,12 +23,74 @@ def load_runtime_inputs() -> controller.RunContract:
     )
 
 
+def is_bootstrap_metrics(metrics: dict[str, object]) -> bool:
+    return (
+        metrics.get("input_events") is None
+        and metrics.get("throughput_eps") is None
+        and metrics.get("avg_end_to_end_latency_seconds") is None
+        and metrics.get("p95_end_to_end_latency_seconds") is None
+        and metrics.get("processed_events") == 0
+        and metrics.get("invalid_events") == 0
+        and metrics.get("deduplicated_events") == 0
+        and metrics.get("breach_events") == 0
+    )
+
+
+def reset_redis_state() -> None:
+    return None
+
+
+def patch_pipeline_config(contract: controller.RunContract) -> None:
+    return None
+
+
+def restart_stream_processor(contract: controller.RunContract) -> None:
+    return None
+
+
+def wait_for_stream_ready(contract: controller.RunContract) -> None:
+    return None
+
+
+def launch_replay_job(contract: controller.RunContract) -> None:
+    return None
+
+
+def wait_for_replay_completion(contract: controller.RunContract) -> None:
+    return None
+
+
+def collect_replay_logs(contract: controller.RunContract) -> str:
+    return ""
+
+
+def collect_stream_logs(contract: controller.RunContract) -> str:
+    return ""
+
+
+def list_s3_run_objects(contract: controller.RunContract) -> str:
+    return ""
+
+
 def run_orchestration(contract: controller.RunContract) -> dict[str, object]:
-    return {
-        "_status": "bootstrap",
-        "controller_mode": "bootstrap",
-        "processed_events": 0,
-    }
+    reset_redis_state()
+    patch_pipeline_config(contract)
+    restart_stream_processor(contract)
+    wait_for_stream_ready(contract)
+    launch_replay_job(contract)
+    wait_for_replay_completion(contract)
+    replay_logs = collect_replay_logs(contract)
+    stream_logs = collect_stream_logs(contract)
+    list_s3_run_objects(contract)
+    return controller.extract_metrics_from_logs(
+        replay_logs,
+        stream_logs,
+        {
+            "pipeline_target": contract.pipeline_target,
+            "scenario": contract.scenario,
+            "workload_family_version": contract.workload_family_version,
+        },
+    )
 
 
 def upload_reports(
@@ -58,6 +120,12 @@ def main() -> None:
     metrics = run_orchestration(contract)
     status = str(metrics.pop("_status", "succeeded"))
     failure_reason = metrics.pop("_failure_reason", None)
+    if is_bootstrap_metrics(metrics):
+        status = "bootstrap"
+        metrics["controller_mode"] = "bootstrap"
+    metrics.pop("pipeline_target", None)
+    metrics.pop("scenario", None)
+    metrics.pop("workload_family_version", None)
     report_payload = controller.build_report_payload(
         contract=contract,
         metrics=metrics,

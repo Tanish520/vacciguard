@@ -1,5 +1,9 @@
 import importlib.util
+import os
+import shutil
+import subprocess
 import sys
+import tempfile
 import unittest
 from unittest import mock
 from pathlib import Path
@@ -416,3 +420,111 @@ class ControllerMainTests(unittest.TestCase):
             "evaluations/baseline/normal/run-007/report.json",
         )
         self.assertEqual(json_call["ContentType"], "application/json")
+
+    def test_service_files_import_in_isolated_runtime_layout(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            shutil.copy(
+                ROOT / "services/evaluation-controller/main.py",
+                temp_root / "main.py",
+            )
+            shutil.copy(
+                ROOT / "services/evaluation-controller/controller.py",
+                temp_root / "controller.py",
+            )
+            shutil.copy(
+                ROOT / "services/evaluation-controller/aws_baseline_metrics.py",
+                temp_root / "aws_baseline_metrics.py",
+            )
+
+            subprocess.run(
+                [
+                    sys.executable,
+                    "-c",
+                    (
+                        "import importlib.util, pathlib; "
+                        "path = pathlib.Path('main.py').resolve(); "
+                        "spec = importlib.util.spec_from_file_location('isolated_main', path); "
+                        "module = importlib.util.module_from_spec(spec); "
+                        "spec.loader.exec_module(module)"
+                    ),
+                ],
+                cwd=temp_root,
+                check=True,
+                capture_output=True,
+                text=True,
+                env={**os.environ, "PYTHONPATH": ""},
+            )
+
+
+class OrchestrationFlowTests(unittest.TestCase):
+    def test_extract_metrics_from_logs_merges_metadata(self):
+        with mock.patch.object(
+            controller.aws_baseline_metrics,
+            "extract_metrics",
+            return_value={"processed_events": 27},
+        ) as mock_extract:
+            metrics = controller.extract_metrics_from_logs(
+                "replay",
+                "stream",
+                {
+                    "pipeline_target": "baseline",
+                    "scenario": "normal",
+                    "workload_family_version": "evaluation-workload-v1",
+                },
+            )
+
+        mock_extract.assert_called_once_with("replay", "stream")
+        self.assertEqual(metrics["processed_events"], 27)
+        self.assertEqual(metrics["pipeline_target"], "baseline")
+        self.assertEqual(metrics["scenario"], "normal")
+        self.assertEqual(
+            metrics["workload_family_version"], "evaluation-workload-v1"
+        )
+
+    def test_run_orchestration_collects_metrics_and_returns_report_fields(self):
+        controller_main = load_module(
+            "evaluation_controller_main_orchestration",
+            "services/evaluation-controller/main.py",
+        )
+
+        contract = controller.resolve_run_contract(
+            pipeline_target="baseline",
+            scenario="normal",
+            run_id="run-006",
+            workload_family_version="evaluation-workload-v1",
+            bucket_name="vacciguard-baseline-data",
+        )
+
+        with mock.patch.object(controller_main, "reset_redis_state"), \
+            mock.patch.object(controller_main, "patch_pipeline_config"), \
+            mock.patch.object(controller_main, "restart_stream_processor"), \
+            mock.patch.object(controller_main, "wait_for_stream_ready"), \
+            mock.patch.object(controller_main, "launch_replay_job"), \
+            mock.patch.object(controller_main, "wait_for_replay_completion"), \
+            mock.patch.object(
+                controller_main, "collect_replay_logs", return_value="replay"
+            ), \
+            mock.patch.object(
+                controller_main, "collect_stream_logs", return_value="stream"
+            ), \
+            mock.patch.object(
+                controller_main, "list_s3_run_objects", return_value="objects"
+            ), \
+            mock.patch.object(
+                controller_main.controller,
+                "extract_metrics_from_logs",
+                return_value={"processed_events": 27},
+            ) as mock_extract:
+            metrics = controller_main.run_orchestration(contract)
+
+        mock_extract.assert_called_once_with(
+            "replay",
+            "stream",
+            {
+                "pipeline_target": "baseline",
+                "scenario": "normal",
+                "workload_family_version": "evaluation-workload-v1",
+            },
+        )
+        self.assertEqual(metrics["processed_events"], 27)
