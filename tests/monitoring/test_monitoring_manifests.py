@@ -58,6 +58,16 @@ def parse_prometheus_scrape_jobs():
     return jobs
 
 
+def load_embedded_grafana_dashboard() -> dict[str, object]:
+    raw = (
+        ROOT / "infra/monitoring/grafana/configmap-dashboard-baseline-overview.yaml"
+    ).read_text(encoding="utf-8")
+    lines = raw.splitlines()
+    start = lines.index("  baseline-overview.json: |") + 1
+    payload = "\n".join(line[4:] for line in lines[start:] if line.startswith("    "))
+    return json.loads(payload)
+
+
 def parse_inline_list(raw: str) -> list[str]:
     stripped = raw.strip()
     if not stripped.startswith("[") or not stripped.endswith("]"):
@@ -136,13 +146,35 @@ class MonitoringManifestTests(unittest.TestCase):
         self.assertEqual(replay_job["action"], "keep")
         self.assertEqual(replay_job["regex"], "replay-producer")
 
-    def test_baseline_dashboard_mentions_expected_panels(self):
-        dashboard_path = ROOT / "infra/monitoring/grafana/configmap-dashboard-baseline-overview.yaml"
-        raw = dashboard_path.read_text(encoding="utf-8")
-        self.assertIn("VacciGuard Baseline Overview", raw)
-        self.assertIn("Pod Restarts", raw)
-        self.assertIn("CPU Usage", raw)
-        self.assertIn("Memory Usage", raw)
+    def test_baseline_dashboard_uses_real_pipeline_metrics(self):
+        dashboard = load_embedded_grafana_dashboard()
+        self.assertEqual(dashboard["title"], "VacciGuard Baseline Overview")
+
+        panels = dashboard["panels"]
+        self.assertGreaterEqual(len(panels), 4)
+
+        expected_exprs = {
+            "sum(vacciguard_replay_sent_events_total)",
+            "max(vacciguard_replay_completion_status)",
+            "sum(vacciguard_stream_processed_events_total)",
+            "sum(vacciguard_stream_invalid_events_total)",
+            "sum(vacciguard_stream_deduplicated_events_total)",
+            "sum(vacciguard_stream_breach_events_total)",
+            "avg(vacciguard_stream_latest_batch_avg_latency_seconds)",
+            "avg(vacciguard_stream_latest_batch_p95_latency_seconds)",
+        }
+        actual_exprs = {
+            target["expr"]
+            for panel in panels
+            for target in panel.get("targets", [])
+            if "expr" in target
+        }
+
+        self.assertTrue(expected_exprs.issubset(actual_exprs))
+
+        for panel in panels:
+            for target in panel.get("targets", []):
+                self.assertEqual(target.get("datasource"), "Prometheus")
 
     def test_grafana_datasource_points_to_prometheus_service(self):
         raw = (ROOT / "infra/monitoring/grafana/configmap-datasource.yaml").read_text(encoding="utf-8")

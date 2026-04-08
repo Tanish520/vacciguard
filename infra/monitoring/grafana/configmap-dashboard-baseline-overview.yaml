@@ -7,12 +7,114 @@ data:
   baseline-overview.json: |
     {
       "title": "VacciGuard Baseline Overview",
-      "panels": [
-        { "title": "Pod Restarts", "type": "stat" },
-        { "title": "CPU Usage", "type": "timeseries" },
-        { "title": "Memory Usage", "type": "timeseries" },
-        { "title": "Replay Job Status", "type": "stat" }
-      ],
+      "uid": "vacciguard-baseline-overview",
       "schemaVersion": 39,
-      "version": 1
+      "version": 2,
+      "refresh": "30s",
+      "panels": [
+        {
+          "id": 1,
+          "title": "Replay Sent Events",
+          "type": "stat",
+          "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+          "targets": [
+            {
+              "datasource": "Prometheus",
+              "expr": "sum(vacciguard_replay_sent_events_total)",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "title": "Replay Completion Status",
+          "type": "stat",
+          "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+          "targets": [
+            {
+              "datasource": "Prometheus",
+              "expr": "max(vacciguard_replay_completion_status)",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "title": "Stream Processed Events",
+          "type": "stat",
+          "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+          "targets": [
+            {
+              "datasource": "Prometheus",
+              "expr": "sum(vacciguard_stream_processed_events_total)",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "title": "Stream Invalid Events",
+          "type": "stat",
+          "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+          "targets": [
+            {
+              "datasource": "Prometheus",
+              "expr": "sum(vacciguard_stream_invalid_events_total)",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "title": "Stream Deduplicated Events",
+          "type": "stat",
+          "gridPos": { "h": 4, "w": 6, "x": 0, "y": 4 },
+          "targets": [
+            {
+              "datasource": "Prometheus",
+              "expr": "sum(vacciguard_stream_deduplicated_events_total)",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "id": 6,
+          "title": "Stream Breach Events",
+          "type": "stat",
+          "gridPos": { "h": 4, "w": 6, "x": 6, "y": 4 },
+          "targets": [
+            {
+              "datasource": "Prometheus",
+              "expr": "sum(vacciguard_stream_breach_events_total)",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "id": 7,
+          "title": "Latest Batch Avg Latency",
+          "type": "stat",
+          "gridPos": { "h": 4, "w": 6, "x": 12, "y": 4 },
+          "targets": [
+            {
+              "datasource": "Prometheus",
+              "expr": "avg(vacciguard_stream_latest_batch_avg_latency_seconds)",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "id": 8,
+          "title": "Latest Batch P95 Latency",
+          "type": "stat",
+          "gridPos": { "h": 4, "w": 6, "x": 18, "y": 4 },
+          "targets": [
+            {
+              "datasource": "Prometheus",
+              "expr": "avg(vacciguard_stream_latest_batch_p95_latency_seconds)",
+              "refId": "A"
+            }
+          ]
+        }
+      ]
     }
