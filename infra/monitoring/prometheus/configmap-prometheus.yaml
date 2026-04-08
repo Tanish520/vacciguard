@@ -18,4 +18,4 @@ data:
         relabel_configs:
           - source_labels: [__meta_kubernetes_namespace]
             action: keep
-            regex: vacciguard|monitoring
+            regex: ^(vacciguard|monitoring)$

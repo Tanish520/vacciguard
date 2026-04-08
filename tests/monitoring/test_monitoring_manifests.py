@@ -22,6 +22,7 @@ class MonitoringManifestTests(unittest.TestCase):
         self.assertIn("kubernetes-pods", raw)
         self.assertIn("kubernetes-nodes", raw)
         self.assertIn("vacciguard", raw)
+        self.assertIn("^(vacciguard|monitoring)$", raw)
 
     def test_baseline_dashboard_mentions_expected_panels(self):
         dashboard_path = ROOT / "infra/monitoring/grafana/configmap-dashboard-baseline-overview.yaml"
