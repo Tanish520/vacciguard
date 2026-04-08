@@ -32,5 +32,9 @@ class MonitoringManifestTests(unittest.TestCase):
         self.assertIn("CPU Usage", raw)
         self.assertIn("Memory Usage", raw)
 
+    def test_grafana_datasource_points_to_prometheus_service(self):
+        raw = (ROOT / "infra/monitoring/grafana/configmap-datasource.yaml").read_text(encoding="utf-8")
+        self.assertIn("http://prometheus.monitoring.svc.cluster.local:9090", raw)
+
     def test_cloudwatch_readme_exists(self):
         self.assertTrue((ROOT / "infra/monitoring/cloudwatch/README.md").exists())
