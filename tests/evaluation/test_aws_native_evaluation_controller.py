@@ -1,6 +1,7 @@
 import importlib.util
 import sys
 import unittest
+from unittest import mock
 from pathlib import Path
 
 
@@ -284,3 +285,134 @@ class ManifestBuilderTests(unittest.TestCase):
             patch["data"]["CHECKPOINT_ROOT"],
             "s3a://vacciguard-baseline-data/evaluations/optimized/spike/run-004/checkpoints",
         )
+
+
+class ControllerMainTests(unittest.TestCase):
+    def test_main_module_loads_without_controller_test_shim(self):
+        sys.modules.pop("controller", None)
+        controller_main = load_module(
+            "evaluation_controller_main_bootstrap",
+            "services/evaluation-controller/main.py",
+        )
+
+        self.assertTrue(hasattr(controller_main, "main"))
+
+    def test_main_writes_report_payload_when_orchestration_succeeds(self):
+        controller_main = load_module(
+            "evaluation_controller_main", "services/evaluation-controller/main.py"
+        )
+
+        contract = controller.resolve_run_contract(
+            pipeline_target="baseline",
+            scenario="normal",
+            run_id="run-005",
+            workload_family_version="evaluation-workload-v1",
+            bucket_name="vacciguard-baseline-data",
+        )
+
+        with mock.patch.object(
+            controller_main, "load_runtime_inputs", return_value=contract
+        ), mock.patch.object(
+            controller_main, "run_orchestration", return_value={"processed_events": 10}
+        ), mock.patch.object(controller_main, "upload_reports") as mock_upload:
+            controller_main.main()
+
+        mock_upload.assert_called_once()
+
+    def test_main_writes_bootstrap_report_for_default_orchestration(self):
+        controller_main = load_module(
+            "evaluation_controller_main_bootstrap",
+            "services/evaluation-controller/main.py",
+        )
+
+        contract = controller.resolve_run_contract(
+            pipeline_target="baseline",
+            scenario="normal",
+            run_id="run-006",
+            workload_family_version="evaluation-workload-v1",
+            bucket_name="vacciguard-baseline-data",
+        )
+
+        with mock.patch.object(
+            controller_main, "load_runtime_inputs", return_value=contract
+        ), mock.patch.object(
+            controller_main, "upload_reports"
+        ) as mock_upload:
+            controller_main.main()
+
+        mock_upload.assert_called_once()
+        report_payload = mock_upload.call_args.kwargs["report_payload"]
+        self.assertEqual(report_payload["status"], "bootstrap")
+        self.assertEqual(report_payload["controller_mode"], "bootstrap")
+        self.assertEqual(report_payload["processed_events"], 0)
+
+    def test_main_propagates_orchestration_failure_without_upload(self):
+        controller_main = load_module(
+            "evaluation_controller_main_failure",
+            "services/evaluation-controller/main.py",
+        )
+
+        contract = controller.resolve_run_contract(
+            pipeline_target="baseline",
+            scenario="normal",
+            run_id="run-008",
+            workload_family_version="evaluation-workload-v1",
+            bucket_name="vacciguard-baseline-data",
+        )
+
+        with mock.patch.object(
+            controller_main, "load_runtime_inputs", return_value=contract
+        ), mock.patch.object(
+            controller_main,
+            "run_orchestration",
+            side_effect=RuntimeError("boom"),
+        ), mock.patch.object(controller_main, "upload_reports") as mock_upload:
+            with self.assertRaises(RuntimeError):
+                controller_main.main()
+
+        mock_upload.assert_not_called()
+
+    def test_upload_reports_writes_markdown_and_json_to_s3(self):
+        controller_main = load_module(
+            "evaluation_controller_main_upload",
+            "services/evaluation-controller/main.py",
+        )
+
+        contract = controller.resolve_run_contract(
+            pipeline_target="baseline",
+            scenario="normal",
+            run_id="run-007",
+            workload_family_version="evaluation-workload-v1",
+            bucket_name="vacciguard-baseline-data",
+        )
+        report_payload = controller.build_report_payload(
+            contract=contract,
+            metrics={"processed_events": 10},
+            status="succeeded",
+            failure_reason=None,
+        )
+
+        with mock.patch("boto3.client") as mock_client_factory:
+            mock_s3 = mock.Mock()
+            mock_client_factory.return_value = mock_s3
+
+            controller_main.upload_reports(
+                contract=contract,
+                report_payload=report_payload,
+            )
+
+        self.assertEqual(mock_s3.put_object.call_count, 2)
+        markdown_call = mock_s3.put_object.call_args_list[0].kwargs
+        json_call = mock_s3.put_object.call_args_list[1].kwargs
+        self.assertEqual(markdown_call["Bucket"], "vacciguard-baseline-data")
+        self.assertEqual(
+            markdown_call["Key"],
+            "evaluations/baseline/normal/run-007/report.md",
+        )
+        self.assertEqual(markdown_call["ContentType"], "text/markdown")
+        self.assertEqual(json_call["Bucket"], "vacciguard-baseline-data")
+        self.assertEqual(
+            json_call["Key"],
+            "evaluations/baseline/normal/run-007/report.json",
+        )
+        self.assertEqual(json_call["ContentType"], "application/json")
