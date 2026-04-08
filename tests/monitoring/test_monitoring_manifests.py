@@ -17,6 +17,12 @@ class MonitoringManifestTests(unittest.TestCase):
         self.assertTrue((ROOT / "infra/monitoring/prometheus/kustomization.yaml").exists())
         self.assertTrue((ROOT / "infra/monitoring/grafana/kustomization.yaml").exists())
 
+    def test_prometheus_config_scrapes_monitoring_targets(self):
+        raw = (ROOT / "infra/monitoring/prometheus/configmap-prometheus.yaml").read_text(encoding="utf-8")
+        self.assertIn("kubernetes-pods", raw)
+        self.assertIn("kubernetes-nodes", raw)
+        self.assertIn("vacciguard", raw)
+
     def test_baseline_dashboard_mentions_expected_panels(self):
         dashboard_path = ROOT / "infra/monitoring/grafana/configmap-dashboard-baseline-overview.yaml"
         raw = dashboard_path.read_text(encoding="utf-8")
