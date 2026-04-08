@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+from __future__ import annotations
+
 """
 VacciGuard stream processor for the Phase 4 smallest working pipeline.
 
@@ -16,6 +18,7 @@ import logging
 import os
 import time
 from datetime import datetime
+from pathlib import Path
 
 import redis
 from kafka import KafkaAdminClient
@@ -41,11 +44,18 @@ KAFKA_STARTING_OFFSETS = os.environ.get("KAFKA_STARTING_OFFSETS", "earliest")
 LOOKUP_FILE = os.environ.get(
     "LOOKUP_FILE", "/data/reference/device-facility-lookup-template.csv"
 )
+# These environment-driven paths allow the same processor code to run locally
+# against mounted files or in AWS-oriented environments with S3-compatible paths.
 PROCESSED_OUTPUT_PATH = os.environ.get("PROCESSED_OUTPUT_PATH", "/data/output/processed")
 INVALID_OUTPUT_PATH = os.environ.get("INVALID_OUTPUT_PATH", "/data/output/invalid")
+BREACH_WINDOW_OUTPUT_PATH = os.environ.get(
+    "BREACH_WINDOW_OUTPUT_PATH", "/data/output/breach_windows"
+)
 CHECKPOINT_ROOT = os.environ.get("CHECKPOINT_ROOT", "/data/output/checkpoints")
 TRIGGER_INTERVAL = os.environ.get("TRIGGER_INTERVAL", "5 seconds")
 WATERMARK_DELAY = os.environ.get("WATERMARK_DELAY", "10 minutes")
+SPARK_SQL_SHUFFLE_PARTITIONS = os.environ.get("SPARK_SQL_SHUFFLE_PARTITIONS", "4")
+SPARK_DEFAULT_PARALLELISM = os.environ.get("SPARK_DEFAULT_PARALLELISM", "4")
 REDIS_HOST = os.environ.get("REDIS_HOST", "redis")
 REDIS_PORT = int(os.environ.get("REDIS_PORT", "6379"))
 REDIS_DB = int(os.environ.get("REDIS_DB", "0"))
@@ -53,11 +63,31 @@ REDIS_STATUS_TTL_SECONDS = int(os.environ.get("REDIS_STATUS_TTL_SECONDS", "3600"
 REDIS_ACTIVE_BREACHES_KEY = os.environ.get("REDIS_ACTIVE_BREACHES_KEY", "active_breaches")
 SPARK_JARS_PACKAGES = os.environ.get(
     "SPARK_JARS_PACKAGES",
-    "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0",
+    ",".join(
+        [
+            "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0",
+            "org.apache.hadoop:hadoop-aws:3.3.4",
+            "com.amazonaws:aws-java-sdk-bundle:1.12.262",
+        ]
+    ),
 )
 KAFKA_TOPIC_PARTITIONS = int(os.environ.get("KAFKA_TOPIC_PARTITIONS", "1"))
 KAFKA_TOPIC_REPLICATION_FACTOR = int(
     os.environ.get("KAFKA_TOPIC_REPLICATION_FACTOR", "1")
+)
+AWS_REGION = os.environ.get("AWS_REGION", os.environ.get("AWS_DEFAULT_REGION", "ap-south-1"))
+LOCAL_SPARK_JARS = os.environ.get(
+    "LOCAL_SPARK_JARS",
+    ",".join(
+        [
+            "/opt/spark/jars-extra/spark-sql-kafka-0-10_2.12-3.5.0.jar",
+            "/opt/spark/jars-extra/spark-token-provider-kafka-0-10_2.12-3.5.0.jar",
+            "/opt/spark/jars-extra/kafka-clients-3.4.1.jar",
+            "/opt/spark/jars-extra/commons-pool2-2.11.1.jar",
+            "/opt/spark/jars-extra/hadoop-aws-3.3.4.jar",
+            "/opt/spark/jars-extra/aws-java-sdk-bundle-1.12.262.jar",
+        ]
+    ),
 )
 
 
@@ -67,21 +97,67 @@ def summarize_batch_counts(
     invalid_count: int,
     deduplicated_count: int,
     breach_count: int,
-) -> dict[str, int]:
+    processed_count: int,
+    avg_end_to_end_latency_seconds: float | None,
+    p95_end_to_end_latency_seconds: float | None,
+) -> dict[str, int | float | None]:
     return {
         "batch_id": batch_id,
         "valid_count": valid_count,
         "invalid_count": invalid_count,
         "deduplicated_count": deduplicated_count,
         "breach_count": breach_count,
+        "processed_count": processed_count,
+        "avg_end_to_end_latency_seconds": avg_end_to_end_latency_seconds,
+        "p95_end_to_end_latency_seconds": p95_end_to_end_latency_seconds,
     }
 
 
-def log_batch_summary(summary: dict[str, int]) -> None:
+def build_breach_windows(processed: DataFrame) -> DataFrame:
+    return (
+        processed.groupBy(
+            F.window("event_ts", "5 minutes"),
+            F.col("facility_id"),
+            F.col("facility_name"),
+        )
+        .agg(
+            F.count("*").alias("total_records"),
+            F.sum(
+                F.when(F.col("breach_status") == "breach", F.lit(1)).otherwise(F.lit(0))
+            ).alias("breach_records"),
+        )
+        .withColumn(
+            "breach_rate",
+            F.when(
+                F.col("total_records") > 0,
+                F.col("breach_records") / F.col("total_records"),
+            ).otherwise(F.lit(0.0)),
+        )
+    )
+
+
+def log_batch_summary(summary: dict[str, int | float | None]) -> None:
+    avg_latency = (
+        f"{summary['avg_end_to_end_latency_seconds']:.2f}"
+        if summary["avg_end_to_end_latency_seconds"] is not None
+        else "n/a"
+    )
+    p95_latency = (
+        f"{summary['p95_end_to_end_latency_seconds']:.2f}"
+        if summary["p95_end_to_end_latency_seconds"] is not None
+        else "n/a"
+    )
     log.info(
-        "Batch %(batch_id)s summary valid=%(valid_count)s invalid=%(invalid_count)s "
-        "deduplicated=%(deduplicated_count)s breach=%(breach_count)s",
-        summary,
+        (
+            "Batch {batch_id} summary valid={valid_count} invalid={invalid_count} "
+            "deduplicated={deduplicated_count} breach={breach_count} "
+            "processed={processed_count} avg_e2e_latency_s={avg_latency} "
+            "p95_e2e_latency_s={p95_latency}"
+        ).format(
+            avg_latency=avg_latency,
+            p95_latency=p95_latency,
+            **summary,
+        )
     )
 
 
@@ -90,6 +166,7 @@ TELEMETRY_SCHEMA = T.StructType(
         T.StructField("event_id", T.StringType(), True),
         T.StructField("device_id", T.StringType(), True),
         T.StructField("event_time", T.StringType(), True),
+        T.StructField("replay_sent_at", T.StringType(), True),
         T.StructField("temperature_c", T.DoubleType(), True),
         T.StructField("door_open", T.BooleanType(), True),
         T.StructField("battery_pct", T.IntegerType(), True),
@@ -117,11 +194,13 @@ def ensure_local_paths() -> None:
     for path in (
         PROCESSED_OUTPUT_PATH,
         INVALID_OUTPUT_PATH,
+        BREACH_WINDOW_OUTPUT_PATH,
         os.path.join(CHECKPOINT_ROOT, "processed"),
-        os.path.join(CHECKPOINT_ROOT, "invalid"),
-        os.path.join(CHECKPOINT_ROOT, "redis"),
-        os.path.join(CHECKPOINT_ROOT, "batch_summary"),
+        os.path.join(CHECKPOINT_ROOT, "processed_side_effects"),
+        os.path.join(CHECKPOINT_ROOT, "classified_side_effects"),
     ):
+        if "://" in path:
+            continue
         os.makedirs(path, exist_ok=True)
 
 
@@ -173,19 +252,108 @@ def build_spark() -> SparkSession:
         TRIGGER_INTERVAL,
         LOOKUP_FILE,
     )
-    return (
-        SparkSession.builder.appName(APP_NAME)
-        .master("local[*]")
-        .config("spark.sql.session.timeZone", "UTC")
-        .config("spark.sql.shuffle.partitions", "4")
-        .config("spark.jars.packages", SPARK_JARS_PACKAGES)
-        .config("spark.streaming.stopGracefullyOnShutdown", "true")
-        .getOrCreate()
-    )
+
+    builder = SparkSession.builder.appName(APP_NAME).master("local[*]")
+
+    for key, value in spark_runtime_conf().items():
+        builder = builder.config(key, value)
+
+    for key, value in spark_dependency_conf().items():
+        builder = builder.config(key, value)
+
+    return builder.getOrCreate()
+
+
+def spark_dependency_conf() -> dict[str, str]:
+    local_jar_paths = [path.strip() for path in LOCAL_SPARK_JARS.split(",") if path.strip()]
+    existing_local_jars = [path for path in local_jar_paths if Path(path).is_file()]
+
+    if existing_local_jars:
+        log.info("Using %s bundled Spark dependency jar(s)", len(existing_local_jars))
+        return {"spark.jars": ",".join(existing_local_jars)}
+
+    log.info("Bundled Spark jars unavailable; falling back to runtime package resolution")
+    return {"spark.jars.packages": SPARK_JARS_PACKAGES}
+
+
+def spark_runtime_conf() -> dict[str, str]:
+    return {
+        "spark.sql.session.timeZone": "UTC",
+        "spark.sql.shuffle.partitions": SPARK_SQL_SHUFFLE_PARTITIONS,
+        "spark.default.parallelism": SPARK_DEFAULT_PARALLELISM,
+        "spark.hadoop.fs.s3a.aws.credentials.provider": "com.amazonaws.auth.WebIdentityTokenCredentialsProvider",
+        "spark.hadoop.fs.s3a.endpoint.region": AWS_REGION,
+        "spark.streaming.stopGracefullyOnShutdown": "true",
+    }
 
 
 def load_lookup(spark: SparkSession) -> DataFrame:
     return spark.read.format("csv").option("header", "true").schema(LOOKUP_SCHEMA).load(LOOKUP_FILE)
+
+
+def build_output_streams(
+    classified: DataFrame,
+    lookup_df: DataFrame,
+    watermark_delay: str = WATERMARK_DELAY,
+) -> tuple[DataFrame, DataFrame]:
+    base_invalid = classified.filter(F.col("invalid_reason").isNotNull()).select(
+        "raw_payload",
+        "kafka_ingest_ts",
+        "partition",
+        "offset",
+        "event_id",
+        "device_id",
+        "event_time",
+        "replay_sent_at",
+        "temperature_c",
+        "door_open",
+        "battery_pct",
+        "location_lat",
+        "location_lon",
+        "invalid_reason",
+    )
+
+    valid = classified.filter(F.col("invalid_reason").isNull())
+    deduplicated = valid.withWatermark("event_ts", watermark_delay).dropDuplicates(["event_id"])
+
+    enriched = deduplicated.join(F.broadcast(lookup_df), on="device_id", how="left")
+
+    unknown_device = enriched.filter(F.col("facility_id").isNull()).select(
+        "raw_payload",
+        "kafka_ingest_ts",
+        "partition",
+        "offset",
+        "event_id",
+        "device_id",
+        "event_time",
+        "replay_sent_at",
+        "temperature_c",
+        "door_open",
+        "battery_pct",
+        "location_lat",
+        "location_lon",
+        F.lit("unknown_device").alias("invalid_reason"),
+    )
+
+    processed = (
+        enriched.filter(F.col("facility_id").isNotNull())
+        .withColumn(
+            "breach_status",
+            F.when(
+                (F.col("temperature_c") < F.col("min_temp_c"))
+                | (F.col("temperature_c") > F.col("max_temp_c")),
+                F.lit("breach"),
+            ).otherwise(F.lit("safe")),
+        )
+        .withColumn(
+            "ingest_delay_seconds",
+            F.col("kafka_ingest_ts").cast("long") - F.col("event_ts").cast("long"),
+        )
+        .withColumn("event_date", F.to_date("event_ts"))
+    )
+
+    invalid = base_invalid.unionByName(unknown_device)
+    return processed, invalid
 
 
 def build_stream(spark: SparkSession) -> tuple[DataFrame, DataFrame, DataFrame]:
@@ -234,63 +402,11 @@ def build_stream(spark: SparkSession) -> tuple[DataFrame, DataFrame, DataFrame]:
     )
 
     classified = parsed_stream.withColumn("invalid_reason", invalid_reason)
-
-    base_invalid = classified.filter(F.col("invalid_reason").isNotNull()).select(
-        "raw_payload",
-        "kafka_ingest_ts",
-        "partition",
-        "offset",
-        "event_id",
-        "device_id",
-        "event_time",
-        "temperature_c",
-        "door_open",
-        "battery_pct",
-        "location_lat",
-        "location_lon",
-        "invalid_reason",
+    processed, invalid = build_output_streams(
+        classified,
+        load_lookup(spark),
+        watermark_delay=WATERMARK_DELAY,
     )
-
-    valid = classified.filter(F.col("invalid_reason").isNull())
-    deduplicated = valid.withWatermark("event_ts", WATERMARK_DELAY).dropDuplicates(["event_id"])
-
-    lookup_df = F.broadcast(load_lookup(spark))
-    enriched = deduplicated.join(lookup_df, on="device_id", how="left")
-
-    unknown_device = enriched.filter(F.col("facility_id").isNull()).select(
-        "raw_payload",
-        "kafka_ingest_ts",
-        "partition",
-        "offset",
-        "event_id",
-        "device_id",
-        "event_time",
-        "temperature_c",
-        "door_open",
-        "battery_pct",
-        "location_lat",
-        "location_lon",
-        F.lit("unknown_device").alias("invalid_reason"),
-    )
-
-    processed = (
-        enriched.filter(F.col("facility_id").isNotNull())
-        .withColumn(
-            "breach_status",
-            F.when(
-                (F.col("temperature_c") < F.col("min_temp_c"))
-                | (F.col("temperature_c") > F.col("max_temp_c")),
-                F.lit("breach"),
-            ).otherwise(F.lit("safe")),
-        )
-        .withColumn(
-            "ingest_delay_seconds",
-            F.col("kafka_ingest_ts").cast("long") - F.col("event_ts").cast("long"),
-        )
-        .withColumn("event_date", F.to_date("event_ts"))
-    )
-
-    invalid = base_invalid.unionByName(unknown_device)
     return processed, invalid, classified
 
 
@@ -362,27 +478,113 @@ def write_latest_state_to_redis(batch_df: DataFrame, batch_id: int) -> None:
     log.info("Batch %s: wrote %s latest device states to Redis", batch_id, written)
 
 
+def write_processed_batch(batch_df: DataFrame, batch_id: int) -> None:
+    if batch_df.rdd.isEmpty():
+        log.info("Batch %s: no processed records to append", batch_id)
+        write_breach_windows_batch(batch_df, batch_id)
+        write_latest_state_to_redis(batch_df, batch_id)
+        return
+
+    batch_df.write.mode("append").parquet(PROCESSED_OUTPUT_PATH)
+    write_breach_windows_batch(batch_df, batch_id)
+    write_latest_state_to_redis(batch_df, batch_id)
+
+
+def write_breach_windows_batch(batch_df: DataFrame, batch_id: int) -> None:
+    breach_windows_batch = build_breach_windows(batch_df)
+    if breach_windows_batch.rdd.isEmpty():
+        log.info("Batch %s: no breach windows to append", batch_id)
+        return
+
+    breach_windows_batch.write.mode("append").json(BREACH_WINDOW_OUTPUT_PATH)
+
+
+def write_classified_batch(batch_df: DataFrame, batch_id: int) -> None:
+    invalid_batch = batch_df.filter(F.col("invalid_reason").isNotNull()).select(
+        "raw_payload",
+        "kafka_ingest_ts",
+        "partition",
+        "offset",
+        "event_id",
+        "device_id",
+        "event_time",
+        "replay_sent_at",
+        "temperature_c",
+        "door_open",
+        "battery_pct",
+        "location_lat",
+        "location_lon",
+        "invalid_reason",
+    )
+    if invalid_batch.rdd.isEmpty():
+        log.info("Batch %s: no invalid records to append", batch_id)
+    else:
+        invalid_batch.write.mode("append").json(INVALID_OUTPUT_PATH)
+
+    write_batch_summary(batch_df, batch_id)
+
+
 def write_batch_summary(batch_df: DataFrame, batch_id: int) -> None:
     spark = batch_df.sparkSession
     lookup_df = F.broadcast(load_lookup(spark))
 
-    valid_batch = batch_df.filter(F.col("invalid_reason").isNull())
-    deduplicated_batch = valid_batch.dropDuplicates(["event_id"])
-    enriched_batch = deduplicated_batch.join(lookup_df, on="device_id", how="left")
-    processed_batch = enriched_batch.filter(F.col("facility_id").isNotNull()).withColumn(
-        "breach_status",
-        F.when(
-            (F.col("temperature_c") < F.col("min_temp_c"))
-            | (F.col("temperature_c") > F.col("max_temp_c")),
-            F.lit("breach"),
-        ).otherwise(F.lit("safe"))
-    )
+    persisted_frames: list[DataFrame] = []
 
-    valid_count = valid_batch.count()
-    deduplicated_count = max(valid_count - deduplicated_batch.count(), 0)
-    unknown_device_count = enriched_batch.filter(F.col("facility_id").isNull()).count()
-    invalid_count = batch_df.filter(F.col("invalid_reason").isNotNull()).count() + unknown_device_count
-    breach_count = processed_batch.filter(F.col("breach_status") == "breach").count()
+    def _persist(frame: DataFrame) -> DataFrame:
+        frame = frame.persist()
+        persisted_frames.append(frame)
+        return frame
+
+    try:
+        batch_df = _persist(batch_df)
+        valid_batch = _persist(batch_df.filter(F.col("invalid_reason").isNull()))
+        deduplicated_batch = _persist(valid_batch.dropDuplicates(["event_id"]))
+        enriched_batch = _persist(deduplicated_batch.join(lookup_df, on="device_id", how="left"))
+        processed_batch = _persist(
+            enriched_batch.filter(F.col("facility_id").isNotNull()).withColumn(
+                "breach_status",
+                F.when(
+                    (F.col("temperature_c") < F.col("min_temp_c"))
+                    | (F.col("temperature_c") > F.col("max_temp_c")),
+                    F.lit("breach"),
+                ).otherwise(F.lit("safe"))
+            )
+        )
+
+        valid_count = valid_batch.count()
+        deduplicated_count = valid_count - deduplicated_batch.count()
+        unknown_device_count = enriched_batch.filter(F.col("facility_id").isNull()).count()
+        invalid_count = (
+            batch_df.filter(F.col("invalid_reason").isNotNull()).count() + unknown_device_count
+        )
+        breach_count = processed_batch.filter(F.col("breach_status") == "breach").count()
+        processed_count = processed_batch.count()
+        avg_end_to_end_latency_seconds = None
+        p95_end_to_end_latency_seconds = None
+
+        if "replay_sent_at" in processed_batch.columns:
+            latency_row = (
+                processed_batch.withColumn("replay_sent_ts", F.to_timestamp("replay_sent_at"))
+                .filter(F.col("replay_sent_ts").isNotNull())
+                .withColumn(
+                    "end_to_end_latency_seconds",
+                    F.current_timestamp().cast("double")
+                    - F.col("replay_sent_ts").cast("double"),
+                )
+                .agg(
+                    F.avg("end_to_end_latency_seconds").alias("avg_latency"),
+                    F.percentile_approx("end_to_end_latency_seconds", 0.95, 10000).alias(
+                        "p95_latency"
+                    ),
+                )
+                .first()
+            )
+            if latency_row is not None and latency_row["avg_latency"] is not None:
+                avg_end_to_end_latency_seconds = round(float(latency_row["avg_latency"]), 2)
+                p95_end_to_end_latency_seconds = round(float(latency_row["p95_latency"]), 2)
+    finally:
+        for frame in reversed(persisted_frames):
+            frame.unpersist()
 
     log_batch_summary(
         summarize_batch_counts(
@@ -391,50 +593,33 @@ def write_batch_summary(batch_df: DataFrame, batch_id: int) -> None:
             invalid_count=invalid_count,
             deduplicated_count=deduplicated_count,
             breach_count=breach_count,
+            processed_count=processed_count,
+            avg_end_to_end_latency_seconds=avg_end_to_end_latency_seconds,
+            p95_end_to_end_latency_seconds=p95_end_to_end_latency_seconds,
         )
     )
 
 
 def start_queries(processed: DataFrame, invalid: DataFrame, classified: DataFrame):
-    processed_query = (
-        processed.writeStream.format("parquet")
+    processed_side_effects_query = (
+        processed.writeStream.foreachBatch(write_processed_batch)
         .outputMode("append")
-        .option("path", PROCESSED_OUTPUT_PATH)
-        .option("checkpointLocation", os.path.join(CHECKPOINT_ROOT, "processed"))
+        .option("checkpointLocation", os.path.join(CHECKPOINT_ROOT, "processed_side_effects"))
         .trigger(processingTime=TRIGGER_INTERVAL)
         .start()
     )
 
-    invalid_query = (
-        invalid.writeStream.format("json")
+    classified_side_effects_query = (
+        classified.writeStream.foreachBatch(write_classified_batch)
         .outputMode("append")
-        .option("path", INVALID_OUTPUT_PATH)
-        .option("checkpointLocation", os.path.join(CHECKPOINT_ROOT, "invalid"))
-        .trigger(processingTime=TRIGGER_INTERVAL)
-        .start()
-    )
-
-    redis_query = (
-        processed.writeStream.foreachBatch(write_latest_state_to_redis)
-        .outputMode("append")
-        .option("checkpointLocation", os.path.join(CHECKPOINT_ROOT, "redis"))
-        .trigger(processingTime=TRIGGER_INTERVAL)
-        .start()
-    )
-
-    batch_summary_query = (
-        classified.writeStream.foreachBatch(write_batch_summary)
-        .outputMode("append")
-        .option("checkpointLocation", os.path.join(CHECKPOINT_ROOT, "batch_summary"))
+        .option("checkpointLocation", os.path.join(CHECKPOINT_ROOT, "classified_side_effects"))
         .trigger(processingTime=TRIGGER_INTERVAL)
         .start()
     )
 
     return [
-        processed_query,
-        invalid_query,
-        redis_query,
-        batch_summary_query,
+        processed_side_effects_query,
+        classified_side_effects_query,
     ]
 
 

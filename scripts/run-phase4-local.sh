@@ -5,9 +5,10 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 cleanup_output() {
-  mkdir -p data/output/processed data/output/invalid data/output/checkpoints
+  mkdir -p data/output/processed data/output/invalid data/output/breach_windows data/output/checkpoints
   find data/output/processed -mindepth 1 ! -name '.gitkeep' -delete
   find data/output/invalid -mindepth 1 ! -name '.gitkeep' -delete
+  find data/output/breach_windows -mindepth 1 ! -name '.gitkeep' -delete
   find data/output/checkpoints -mindepth 1 ! -name '.gitkeep' -delete
 }
 
@@ -38,6 +39,9 @@ docker compose exec -T redis redis-cli GET device:status:FR-0102
 
 echo "Inspect processed output:"
 find data/output/processed -maxdepth 1 -name '*.parquet' -type f | sort
+
+echo "Inspect breach-window output:"
+find data/output/breach_windows -maxdepth 1 -name '*.json' -type f | sort
 
 echo "Inspect stream batch summaries:"
 docker compose logs stream-processor | grep "Batch .* summary" || true

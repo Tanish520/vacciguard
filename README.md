@@ -44,6 +44,8 @@ VacciGuard is a cloud data pipeline case study for vaccine cold-chain monitoring
 
 This repository now has the planning foundation and the initial implementation folder structure in place. The next steps are to build the replay producer, processing services, deployment configuration, and evaluation workflow inside the new folders.
 
+AWS baseline deployment docs are now available in [docs/aws-baseline-foundation.md](/Users/tanishgupta/Downloads/vacciguard/.worktrees/tanish_pipeline/docs/aws-baseline-foundation.md) and summarized in the AWS Baseline Foundation section below.
+
 ## Phase 4 Local Runbook
 
 1. Generate the replay workload:
@@ -76,6 +78,7 @@ docker compose exec redis redis-cli ZRANGE active_breaches 0 -1 WITHSCORES
 ```bash
 find data/output/processed -maxdepth 1 -name '*.parquet' -type f | sort
 find data/output/invalid -maxdepth 1 -name '*.json' -type f | sort
+find data/output/breach_windows -maxdepth 1 -name '*.json' -type f | sort
 ```
 
 6. Run smoke verification:
@@ -95,3 +98,18 @@ bash scripts/run-phase4-local.sh
 ```bash
 docker compose logs stream-processor | grep "Batch .* summary"
 ```
+
+## AWS Baseline Foundation
+
+The repository includes an AWS baseline deployment scaffold under `infra/terraform` and `infra/kubernetes`.
+
+Validate it with:
+
+```bash
+terraform -chdir=infra/terraform fmt -check
+kubectl kustomize infra/kubernetes/base > /tmp/vacciguard-base.yaml
+kubectl kustomize infra/kubernetes/baseline > /tmp/vacciguard-baseline.yaml
+kubectl kustomize infra/kubernetes/optimized > /tmp/vacciguard-optimized.yaml
+```
+
+See `docs/aws-baseline-foundation.md` for the baseline deployment structure and current boundaries.

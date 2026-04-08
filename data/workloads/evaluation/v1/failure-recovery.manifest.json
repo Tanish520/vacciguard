@@ -1,0 +1,17 @@
+{
+  "workload_family_version": "evaluation-workload-v1",
+  "scenario": "failure-recovery",
+  "devices": 30,
+  "duration_minutes": 12,
+  "target_eps": 6.0,
+  "mix_targets": {
+    "duplicates_pct": 0.05,
+    "late_pct": 0.03,
+    "invalid_pct": 0.02
+  },
+  "event_count": 4751,
+  "fault_model": {
+    "type": "stream-processor-restart",
+    "offset_minutes": 6
+  }
+}
