@@ -33,7 +33,7 @@ data:
           "targets": [
             {
               "datasource": "Prometheus",
-              "expr": "vacciguard_replay_completion_status * on(pod) group_left() topk(1, max by (pod) (timestamp(vacciguard_replay_completion_status)))",
+              "expr": "vacciguard_replay_completion_status and on(pod) topk(1, max by (pod) (timestamp(vacciguard_replay_completion_status)))",
               "refId": "A"
             }
           ]

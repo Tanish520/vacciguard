@@ -153,24 +153,34 @@ class MonitoringManifestTests(unittest.TestCase):
         panels = dashboard["panels"]
         self.assertGreaterEqual(len(panels), 4)
 
-        expected_exprs = {
-            "sum(vacciguard_replay_sent_events_total)",
-            "vacciguard_replay_completion_status * on(pod) group_left() topk(1, max by (pod) (timestamp(vacciguard_replay_completion_status)))",
-            "sum(vacciguard_stream_processed_events_total)",
-            "sum(vacciguard_stream_invalid_events_total)",
-            "sum(vacciguard_stream_deduplicated_events_total)",
-            "sum(vacciguard_stream_breach_events_total)",
-            "avg(vacciguard_stream_latest_batch_avg_latency_seconds)",
-            "avg(vacciguard_stream_latest_batch_p95_latency_seconds)",
-        }
-        actual_exprs = {
-            target["expr"]
+        panel_queries = {
+            panel["title"]: [
+                target["expr"] for target in panel.get("targets", []) if "expr" in target
+            ]
             for panel in panels
-            for target in panel.get("targets", [])
-            if "expr" in target
         }
+        expected_panel_queries = {
+            "Replay Sent Events": "sum(vacciguard_replay_sent_events_total)",
+            "Stream Processed Events": "sum(vacciguard_stream_processed_events_total)",
+            "Stream Invalid Events": "sum(vacciguard_stream_invalid_events_total)",
+            "Stream Deduplicated Events": "sum(vacciguard_stream_deduplicated_events_total)",
+            "Stream Breach Events": "sum(vacciguard_stream_breach_events_total)",
+            "Latest Batch Avg Latency": "avg(vacciguard_stream_latest_batch_avg_latency_seconds)",
+            "Latest Batch P95 Latency": "avg(vacciguard_stream_latest_batch_p95_latency_seconds)",
+        }
+        for panel_title, expected_expr in expected_panel_queries.items():
+            self.assertIn(panel_title, panel_queries)
+            self.assertIn(expected_expr, panel_queries[panel_title])
 
-        self.assertTrue(expected_exprs.issubset(actual_exprs))
+        replay_status_exprs = panel_queries["Replay Completion Status"]
+        self.assertEqual(len(replay_status_exprs), 1)
+        replay_status_expr = replay_status_exprs[0]
+        self.assertIn("vacciguard_replay_completion_status", replay_status_expr)
+        self.assertIn("timestamp(vacciguard_replay_completion_status)", replay_status_expr)
+        self.assertIn("topk(1", replay_status_expr)
+        self.assertIn("on(pod)", replay_status_expr)
+        self.assertIn(" and ", replay_status_expr)
+        self.assertNotIn(" * on(pod)", replay_status_expr)
 
         for panel in panels:
             for target in panel.get("targets", []):
