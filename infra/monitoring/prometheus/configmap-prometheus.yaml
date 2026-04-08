@@ -20,6 +20,9 @@ data:
           - source_labels: [__meta_kubernetes_namespace]
             action: keep
             regex: vacciguard
+          - source_labels: [__meta_kubernetes_pod_phase]
+            action: keep
+            regex: Running
           - source_labels: [__meta_kubernetes_pod_container_port_name]
             action: keep
             regex: metrics
@@ -34,6 +37,9 @@ data:
           - source_labels: [__meta_kubernetes_namespace]
             action: keep
             regex: vacciguard
+          - source_labels: [__meta_kubernetes_pod_phase]
+            action: keep
+            regex: Running
           - source_labels: [__meta_kubernetes_pod_container_port_name]
             action: keep
             regex: metrics
