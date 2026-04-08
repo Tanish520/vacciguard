@@ -155,7 +155,7 @@ class MonitoringManifestTests(unittest.TestCase):
 
         expected_exprs = {
             "sum(vacciguard_replay_sent_events_total)",
-            "max(vacciguard_replay_completion_status)",
+            "vacciguard_replay_completion_status * on(pod) group_left() topk(1, max by (pod) (timestamp(vacciguard_replay_completion_status)))",
             "sum(vacciguard_stream_processed_events_total)",
             "sum(vacciguard_stream_invalid_events_total)",
             "sum(vacciguard_stream_deduplicated_events_total)",
