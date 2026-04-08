@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-baseline-overview
+  namespace: monitoring
+data:
+  baseline-overview.json: |
+    {
+      "title": "VacciGuard Baseline Overview",
+      "panels": [
+        { "title": "Pod Restarts", "type": "stat" },
+        { "title": "CPU Usage", "type": "timeseries" },
+        { "title": "Memory Usage", "type": "timeseries" },
+        { "title": "Replay Job Status", "type": "stat" }
+      ],
+      "schemaVersion": 39,
+      "version": 1
+    }
