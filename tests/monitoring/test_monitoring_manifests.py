@@ -28,6 +28,7 @@ class MonitoringManifestTests(unittest.TestCase):
         self.assertIn("kubernetes-nodes", raw)
         self.assertIn("job_name: stream-processor-metrics", raw)
         self.assertIn("job_name: replay-producer-metrics", raw)
+        self.assertEqual(raw.count("metrics_path: /metrics"), 2)
         self.assertIn("__meta_kubernetes_pod_container_port_name", raw)
         self.assertIn("regex: metrics", raw)
         self.assertIn("__meta_kubernetes_pod_label_app", raw)

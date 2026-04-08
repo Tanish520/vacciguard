@@ -13,6 +13,7 @@ data:
         kubernetes_sd_configs:
           - role: node
       - job_name: stream-processor-metrics
+        metrics_path: /metrics
         kubernetes_sd_configs:
           - role: pod
         relabel_configs:
@@ -26,6 +27,7 @@ data:
             action: keep
             regex: stream-processor
       - job_name: replay-producer-metrics
+        metrics_path: /metrics
         kubernetes_sd_configs:
           - role: pod
         relabel_configs:
