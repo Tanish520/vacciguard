@@ -25,10 +25,15 @@ class MonitoringManifestTests(unittest.TestCase):
 
     def test_prometheus_config_scrapes_monitoring_targets(self):
         raw = (ROOT / "infra/monitoring/prometheus/configmap-prometheus.yaml").read_text(encoding="utf-8")
-        self.assertIn("kubernetes-pods", raw)
         self.assertIn("kubernetes-nodes", raw)
-        self.assertIn("vacciguard", raw)
-        self.assertIn("^(vacciguard|monitoring)$", raw)
+        self.assertIn("job_name: stream-processor-metrics", raw)
+        self.assertIn("job_name: replay-producer-metrics", raw)
+        self.assertIn("__meta_kubernetes_pod_container_port_name", raw)
+        self.assertIn("regex: metrics", raw)
+        self.assertIn("__meta_kubernetes_pod_label_app", raw)
+        self.assertIn("regex: stream-processor", raw)
+        self.assertIn("__meta_kubernetes_pod_label_job_name", raw)
+        self.assertIn("regex: replay-producer", raw)
 
     def test_baseline_dashboard_mentions_expected_panels(self):
         dashboard_path = ROOT / "infra/monitoring/grafana/configmap-dashboard-baseline-overview.yaml"

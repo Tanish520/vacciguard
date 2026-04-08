@@ -12,10 +12,29 @@ data:
       - job_name: kubernetes-nodes
         kubernetes_sd_configs:
           - role: node
-      - job_name: kubernetes-pods
+      - job_name: stream-processor-metrics
         kubernetes_sd_configs:
           - role: pod
         relabel_configs:
           - source_labels: [__meta_kubernetes_namespace]
             action: keep
-            regex: ^(vacciguard|monitoring)$
+            regex: vacciguard
+          - source_labels: [__meta_kubernetes_pod_container_port_name]
+            action: keep
+            regex: metrics
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            action: keep
+            regex: stream-processor
+      - job_name: replay-producer-metrics
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_namespace]
+            action: keep
+            regex: vacciguard
+          - source_labels: [__meta_kubernetes_pod_container_port_name]
+            action: keep
+            regex: metrics
+          - source_labels: [__meta_kubernetes_pod_label_job_name]
+            action: keep
+            regex: replay-producer
