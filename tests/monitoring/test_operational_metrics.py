@@ -16,10 +16,10 @@ class StreamOperationalMetricsTests(unittest.TestCase):
 
         registry.update_batch_metrics(
             batch_id=7,
-            processed_events=11,
-            invalid_events=2,
-            deduplicated_events=3,
-            breach_events=4,
+            processed_count=11,
+            invalid_count=2,
+            deduplicated_count=3,
+            breach_count=4,
             avg_latency_seconds=1.25,
             p95_latency_seconds=2.75,
         )

@@ -116,7 +116,7 @@ def summarize_batch_counts(
 class StreamMetricsRegistry:
     def __init__(self) -> None:
         self._metrics = {
-            "vacciguard_stream_latest_batch_id": 0,
+            "vacciguard_stream_latest_batch_id": -1,
             "vacciguard_stream_latest_batch_timestamp_seconds": 0.0,
             "vacciguard_stream_processed_events_total": 0,
             "vacciguard_stream_invalid_events_total": 0,
@@ -128,20 +128,21 @@ class StreamMetricsRegistry:
 
     def update_batch_metrics(
         self,
+        *,
         batch_id: int,
-        processed_events: int,
-        invalid_events: int,
-        deduplicated_events: int,
-        breach_events: int,
+        processed_count: int,
+        invalid_count: int,
+        deduplicated_count: int,
+        breach_count: int,
         avg_latency_seconds: float | None,
         p95_latency_seconds: float | None,
     ) -> None:
         self._metrics["vacciguard_stream_latest_batch_id"] = batch_id
         self._metrics["vacciguard_stream_latest_batch_timestamp_seconds"] = time.time()
-        self._metrics["vacciguard_stream_processed_events_total"] += processed_events
-        self._metrics["vacciguard_stream_invalid_events_total"] += invalid_events
-        self._metrics["vacciguard_stream_deduplicated_events_total"] += deduplicated_events
-        self._metrics["vacciguard_stream_breach_events_total"] += breach_events
+        self._metrics["vacciguard_stream_processed_events_total"] += processed_count
+        self._metrics["vacciguard_stream_invalid_events_total"] += invalid_count
+        self._metrics["vacciguard_stream_deduplicated_events_total"] += deduplicated_count
+        self._metrics["vacciguard_stream_breach_events_total"] += breach_count
         self._metrics["vacciguard_stream_latest_batch_avg_latency_seconds"] = (
             0.0 if avg_latency_seconds is None else avg_latency_seconds
         )
