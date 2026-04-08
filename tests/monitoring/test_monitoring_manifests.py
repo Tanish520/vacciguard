@@ -100,6 +100,17 @@ def pod_target_relabel(job: dict[str, object]) -> dict[str, object]:
     raise AssertionError(f"Missing pod target relabel in {job['job_name']}")
 
 
+def replay_completion_status_target_expr(dashboard: dict[str, object]) -> str:
+    for panel in dashboard["panels"]:
+        if panel.get("title") != "Replay Completion Status":
+            continue
+        exprs = [target["expr"] for target in panel.get("targets", []) if "expr" in target]
+        if len(exprs) != 1:
+            raise AssertionError("Replay Completion Status panel must define exactly one expression")
+        return exprs[0]
+    raise AssertionError("Replay Completion Status panel not found")
+
+
 class MonitoringManifestTests(unittest.TestCase):
     def test_aws_baseline_foundation_mentions_monitoring_stack(self):
         raw = (ROOT / "docs/aws-baseline-foundation.md").read_text(encoding="utf-8")
@@ -193,16 +204,13 @@ class MonitoringManifestTests(unittest.TestCase):
             self.assertIn(panel_title, panel_queries)
             self.assertIn(expected_expr, panel_queries[panel_title])
 
-        replay_status_exprs = panel_queries["Replay Completion Status"]
-        self.assertEqual(len(replay_status_exprs), 1)
-        replay_status_expr = replay_status_exprs[0]
+        replay_status_expr = replay_completion_status_target_expr(dashboard)
         self.assertIn("vacciguard_replay_completion_status", replay_status_expr)
-        self.assertIn("timestamp(vacciguard_replay_completion_status)", replay_status_expr)
+        self.assertIn("vacciguard_replay_completion_timestamp_seconds", replay_status_expr)
         self.assertIn("topk(1", replay_status_expr)
-        self.assertIn("max by (pod)", replay_status_expr)
         self.assertIn("on(pod)", replay_status_expr)
         self.assertIn(" and ", replay_status_expr)
-        self.assertNotIn(" * on(pod)", replay_status_expr)
+        self.assertNotIn("timestamp(", replay_status_expr)
 
         for panel in panels:
             for target in panel.get("targets", []):

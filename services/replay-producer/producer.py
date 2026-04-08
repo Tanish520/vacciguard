@@ -54,6 +54,7 @@ class ReplayMetricsRegistry:
             "vacciguard_replay_configured_rate_events_per_second": 0.0,
             "vacciguard_replay_duration_seconds": 0.0,
             "vacciguard_replay_completion_status": 0,
+            "vacciguard_replay_completion_timestamp_seconds": 0.0,
         }
 
     def record_loaded_events(self, event_count):
@@ -67,6 +68,7 @@ class ReplayMetricsRegistry:
             )
             self._metrics["vacciguard_replay_duration_seconds"] = 0.0
             self._metrics["vacciguard_replay_completion_status"] = 0
+            self._metrics["vacciguard_replay_completion_timestamp_seconds"] = 0.0
 
     def record_sent_event(self, duration_seconds=None):
         with self._lock:
@@ -74,13 +76,25 @@ class ReplayMetricsRegistry:
             if duration_seconds is not None:
                 self._metrics["vacciguard_replay_duration_seconds"] = duration_seconds
 
-    def record_completion(self, *, duration_seconds, configured_events_per_second, completion_status=1):
+    def record_completion(
+        self,
+        *,
+        duration_seconds,
+        configured_events_per_second,
+        completion_status=1,
+        completion_timestamp_seconds=None,
+    ):
         with self._lock:
             self._metrics["vacciguard_replay_duration_seconds"] = duration_seconds
             self._metrics["vacciguard_replay_configured_rate_events_per_second"] = (
                 configured_events_per_second
             )
             self._metrics["vacciguard_replay_completion_status"] = completion_status
+            self._metrics["vacciguard_replay_completion_timestamp_seconds"] = (
+                time.time()
+                if completion_timestamp_seconds is None
+                else completion_timestamp_seconds
+            )
 
     def render_prometheus(self):
         with self._lock:
