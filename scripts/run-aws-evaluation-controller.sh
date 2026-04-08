@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT_DIR"
+
+PIPELINE_TARGET="${1:-baseline}"
+SCENARIO="${2:-normal}"
+RUN_ID="${3:-$(date -u +%Y%m%dT%H%M%SZ)}"
+JOB_NAME="evaluation-controller-$(printf '%s' "$RUN_ID" | tr '[:upper:]' '[:lower:]')"
+
+TEMPLATE_JSON="$(kubectl create --dry-run=client -f infra/kubernetes/base/job-evaluation-controller.yaml -o json)"
+
+python3 - "$TEMPLATE_JSON" "$JOB_NAME" "$PIPELINE_TARGET" "$SCENARIO" "$RUN_ID" <<'PY' | kubectl apply -f - >/dev/null
+import json
+import sys
+
+template = json.loads(sys.argv[1])
+job_name = sys.argv[2]
+pipeline_target = sys.argv[3]
+scenario = sys.argv[4]
+run_id = sys.argv[5]
+
+template["metadata"]["name"] = job_name
+template["metadata"]["namespace"] = "vacciguard"
+template["spec"]["suspend"] = False
+
+for item in template["spec"]["template"]["spec"]["containers"][0]["env"]:
+    if item["name"] == "PIPELINE_TARGET":
+        item["value"] = pipeline_target
+    elif item["name"] == "SCENARIO":
+        item["value"] = scenario
+    elif item["name"] == "RUN_ID":
+        item["value"] = run_id
+
+print(json.dumps(template))
+PY
+
+kubectl logs "job/${JOB_NAME}" -n vacciguard -f
