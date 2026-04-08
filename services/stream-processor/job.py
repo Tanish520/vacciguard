@@ -16,6 +16,7 @@ brought online.
 import json
 import logging
 import os
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -115,6 +116,7 @@ def summarize_batch_counts(
 
 class StreamMetricsRegistry:
     def __init__(self) -> None:
+        self._lock = threading.Lock()
         self._metrics = {
             "vacciguard_stream_latest_batch_id": -1,
             "vacciguard_stream_latest_batch_timestamp_seconds": 0.0,
@@ -137,21 +139,24 @@ class StreamMetricsRegistry:
         avg_latency_seconds: float | None,
         p95_latency_seconds: float | None,
     ) -> None:
-        self._metrics["vacciguard_stream_latest_batch_id"] = batch_id
-        self._metrics["vacciguard_stream_latest_batch_timestamp_seconds"] = time.time()
-        self._metrics["vacciguard_stream_processed_events_total"] += processed_count
-        self._metrics["vacciguard_stream_invalid_events_total"] += invalid_count
-        self._metrics["vacciguard_stream_deduplicated_events_total"] += deduplicated_count
-        self._metrics["vacciguard_stream_breach_events_total"] += breach_count
-        self._metrics["vacciguard_stream_latest_batch_avg_latency_seconds"] = (
-            0.0 if avg_latency_seconds is None else avg_latency_seconds
-        )
-        self._metrics["vacciguard_stream_latest_batch_p95_latency_seconds"] = (
-            0.0 if p95_latency_seconds is None else p95_latency_seconds
-        )
+        with self._lock:
+            self._metrics["vacciguard_stream_latest_batch_id"] = batch_id
+            self._metrics["vacciguard_stream_latest_batch_timestamp_seconds"] = time.time()
+            self._metrics["vacciguard_stream_processed_events_total"] += processed_count
+            self._metrics["vacciguard_stream_invalid_events_total"] += invalid_count
+            self._metrics["vacciguard_stream_deduplicated_events_total"] += deduplicated_count
+            self._metrics["vacciguard_stream_breach_events_total"] += breach_count
+            self._metrics["vacciguard_stream_latest_batch_avg_latency_seconds"] = (
+                0.0 if avg_latency_seconds is None else avg_latency_seconds
+            )
+            self._metrics["vacciguard_stream_latest_batch_p95_latency_seconds"] = (
+                0.0 if p95_latency_seconds is None else p95_latency_seconds
+            )
 
     def render_prometheus(self) -> str:
-        return "\n".join(f"{name} {value}" for name, value in self._metrics.items()) + "\n"
+        with self._lock:
+            snapshot = tuple(self._metrics.items())
+        return "\n".join(f"{name} {value}" for name, value in snapshot) + "\n"
 
 
 def build_breach_windows(processed: DataFrame) -> DataFrame:

@@ -1,6 +1,7 @@
 import importlib.util
 from pathlib import Path
 import tempfile
+import threading
 import unittest
 import uuid
 from unittest.mock import patch
@@ -125,6 +126,62 @@ class BatchSummaryLoggingTests(unittest.TestCase):
 
 
 class StreamMetricsRegistryTests(unittest.TestCase):
+    def test_render_prometheus_is_snapshot_safe_during_concurrent_update(self):
+        class BlockingValue:
+            def __init__(self, value, ready_event, continue_event):
+                self.value = value
+                self.ready_event = ready_event
+                self.continue_event = continue_event
+
+            def __str__(self):
+                self.ready_event.set()
+                if not self.continue_event.wait(timeout=1):
+                    raise AssertionError("render did not resume in time")
+                return str(self.value)
+
+        registry = stream_job.StreamMetricsRegistry()
+        ready_event = threading.Event()
+        continue_event = threading.Event()
+        rendered_holder = {}
+
+        registry._metrics["vacciguard_stream_latest_batch_id"] = BlockingValue(
+            -1,
+            ready_event,
+            continue_event,
+        )
+
+        def render_metrics():
+            rendered_holder["value"] = registry.render_prometheus()
+
+        render_thread = threading.Thread(target=render_metrics)
+        render_thread.start()
+        self.assertTrue(ready_event.wait(timeout=1))
+
+        registry.update_batch_metrics(
+            batch_id=4,
+            processed_count=2,
+            invalid_count=3,
+            deduplicated_count=1,
+            breach_count=0,
+            avg_latency_seconds=0.75,
+            p95_latency_seconds=1.25,
+        )
+
+        continue_event.set()
+        render_thread.join(timeout=1)
+        self.assertFalse(render_thread.is_alive())
+
+        rendered = rendered_holder["value"]
+
+        self.assertIn("vacciguard_stream_latest_batch_id -1", rendered)
+        self.assertIn("vacciguard_stream_latest_batch_timestamp_seconds 0.0", rendered)
+        self.assertIn("vacciguard_stream_processed_events_total 0", rendered)
+        self.assertIn("vacciguard_stream_invalid_events_total 0", rendered)
+        self.assertIn("vacciguard_stream_deduplicated_events_total 0", rendered)
+        self.assertIn("vacciguard_stream_breach_events_total 0", rendered)
+        self.assertIn("vacciguard_stream_latest_batch_avg_latency_seconds 0.0", rendered)
+        self.assertIn("vacciguard_stream_latest_batch_p95_latency_seconds 0.0", rendered)
+
     def test_update_batch_metrics_renders_latest_and_total_metrics(self):
         registry = stream_job.StreamMetricsRegistry()
 

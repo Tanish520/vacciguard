@@ -14,6 +14,18 @@ class StreamOperationalMetricsTests(unittest.TestCase):
     def test_stream_metrics_render_prometheus_text(self):
         registry = stream_job.StreamMetricsRegistry()
 
+        initial_rendered = registry.render_prometheus()
+
+        self.assertIn("vacciguard_stream_latest_batch_id -1", initial_rendered)
+        self.assertIn("vacciguard_stream_latest_batch_timestamp_seconds 0.0", initial_rendered)
+        self.assertIn("vacciguard_stream_processed_events_total 0", initial_rendered)
+        self.assertIn("vacciguard_stream_invalid_events_total 0", initial_rendered)
+        self.assertIn("vacciguard_stream_deduplicated_events_total 0", initial_rendered)
+        self.assertIn("vacciguard_stream_breach_events_total 0", initial_rendered)
+        self.assertIn("vacciguard_stream_latest_batch_avg_latency_seconds 0.0", initial_rendered)
+        self.assertIn("vacciguard_stream_latest_batch_p95_latency_seconds 0.0", initial_rendered)
+        self.assertTrue(initial_rendered.endswith("\n"))
+
         registry.update_batch_metrics(
             batch_id=6,
             processed_count=4,
