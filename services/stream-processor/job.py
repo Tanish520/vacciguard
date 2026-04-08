@@ -151,7 +151,7 @@ class StreamMetricsRegistry:
         )
 
     def render_prometheus(self) -> str:
-        return "\n".join(f"{name} {value}" for name, value in self._metrics.items())
+        return "\n".join(f"{name} {value}" for name, value in self._metrics.items()) + "\n"
 
 
 def build_breach_windows(processed: DataFrame) -> DataFrame:
