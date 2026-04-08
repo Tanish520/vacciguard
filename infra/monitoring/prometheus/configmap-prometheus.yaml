@@ -29,6 +29,8 @@ data:
           - source_labels: [__meta_kubernetes_pod_label_app]
             action: keep
             regex: stream-processor
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
       - job_name: replay-producer-metrics
         metrics_path: /metrics
         kubernetes_sd_configs:
@@ -46,3 +48,5 @@ data:
           - source_labels: [__meta_kubernetes_pod_label_job_name]
             action: keep
             regex: replay-producer
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
