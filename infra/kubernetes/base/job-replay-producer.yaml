@@ -26,6 +26,8 @@ spec:
               value: /data/workloads/dev/events.ndjson
             - name: EVENTS_PER_SECOND
               value: "5"
+            - name: REPLAY_METRICS_DRAIN_SECONDS
+              value: "15"
             - name: LOOP
               value: "false"
       volumes:

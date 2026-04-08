@@ -5,6 +5,7 @@ import urllib.request
 from pathlib import Path
 from typing import Dict, Optional
 import unittest
+from unittest.mock import Mock, patch
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -174,6 +175,61 @@ class ReplayOperationalMetricsTests(unittest.TestCase):
         self.assertIn("vacciguard_replay_completion_status 1", rendered)
         self.assertTrue(rendered.endswith("\n"))
 
+    def test_replay_metrics_begin_run_resets_terminal_values_and_sets_rate(self):
+        registry = replay_producer.ReplayMetricsRegistry()
+        registry.record_loaded_events(4)
+        registry.record_sent_event()
+        registry.record_completion(duration_seconds=2.5, configured_events_per_second=5.0)
+
+        registry.begin_run(configured_events_per_second=8.0)
+        rendered = registry.render_prometheus()
+
+        self.assertIn("vacciguard_replay_loaded_events 4", rendered)
+        self.assertIn("vacciguard_replay_sent_events_total 1", rendered)
+        self.assertIn("vacciguard_replay_configured_rate_events_per_second 8.0", rendered)
+        self.assertIn("vacciguard_replay_duration_seconds 0.0", rendered)
+        self.assertIn("vacciguard_replay_completion_status 0", rendered)
+
+
+class ReplayLifecycleTests(unittest.TestCase):
+    def test_replay_updates_metrics_during_successful_run(self):
+        producer = Mock()
+        registry = replay_producer.ReplayMetricsRegistry()
+        events = [{"event_id": "a"}, {"event_id": "b"}]
+
+        with patch.object(replay_producer.time, "sleep"), patch.object(
+            replay_producer.time,
+            "monotonic",
+            side_effect=[100.0, 100.0, 100.2, 100.25, 100.5, 100.5, 100.5],
+        ):
+            replay_producer.replay(producer, events, 4.0, metrics_registry=registry)
+
+        rendered = registry.render_prometheus()
+
+        self.assertIn("vacciguard_replay_sent_events_total 2", rendered)
+        self.assertIn("vacciguard_replay_configured_rate_events_per_second 4.0", rendered)
+        self.assertIn("vacciguard_replay_duration_seconds 0.5", rendered)
+        self.assertIn("vacciguard_replay_completion_status 1", rendered)
+        producer.flush.assert_called_once_with()
+
+    def test_replay_updates_failure_status_and_duration(self):
+        producer = Mock()
+        producer.send.side_effect = RuntimeError("send failed")
+        registry = replay_producer.ReplayMetricsRegistry()
+        events = [{"event_id": "a"}]
+
+        with patch.object(replay_producer.time, "monotonic", side_effect=[50.0, 50.0, 50.25]):
+            with self.assertRaises(RuntimeError):
+                replay_producer.replay(producer, events, 6.0, metrics_registry=registry)
+
+        rendered = registry.render_prometheus()
+
+        self.assertIn("vacciguard_replay_sent_events_total 0", rendered)
+        self.assertIn("vacciguard_replay_configured_rate_events_per_second 6.0", rendered)
+        self.assertIn("vacciguard_replay_duration_seconds 0.25", rendered)
+        self.assertIn("vacciguard_replay_completion_status 2", rendered)
+        producer.flush.assert_not_called()
+
 
 class ReplayMetricsHttpHandlerTests(unittest.TestCase):
     def test_replay_metrics_http_payload_returns_prometheus_text_for_registry(self):
@@ -221,3 +277,51 @@ class ReplayMetricsHttpHandlerTests(unittest.TestCase):
         finally:
             server.shutdown()
             server.server_close()
+
+
+class ReplayMainLifecycleTests(unittest.TestCase):
+    def test_main_drains_metrics_then_shuts_down_server_after_success(self):
+        metrics_server = Mock()
+        producer = Mock()
+
+        with patch.object(replay_producer, "REPLAY_METRICS_REGISTRY", replay_producer.ReplayMetricsRegistry()), patch.object(
+            replay_producer, "REPLAY_METRICS_DRAIN_SECONDS", 3.5
+        ), patch.object(
+            replay_producer, "start_metrics_server", return_value=metrics_server
+        ), patch.object(
+            replay_producer, "load_events", return_value=[{"event_id": "a"}]
+        ), patch.object(
+            replay_producer, "connect", return_value=producer
+        ), patch.object(
+            replay_producer, "replay"
+        ) as mock_replay, patch.object(
+            replay_producer.time, "sleep"
+        ) as mock_sleep:
+            replay_producer.main()
+
+        mock_replay.assert_called_once()
+        mock_sleep.assert_called_once_with(3.5)
+        producer.close.assert_called_once_with()
+        metrics_server.shutdown.assert_called_once_with()
+        metrics_server.server_close.assert_called_once_with()
+
+    def test_main_shuts_down_metrics_server_when_startup_fails_without_drain(self):
+        metrics_server = Mock()
+        startup_error = RuntimeError("load failed")
+
+        with patch.object(replay_producer, "REPLAY_METRICS_REGISTRY", replay_producer.ReplayMetricsRegistry()), patch.object(
+            replay_producer, "REPLAY_METRICS_DRAIN_SECONDS", 2.0
+        ), patch.object(
+            replay_producer, "start_metrics_server", return_value=metrics_server
+        ), patch.object(
+            replay_producer, "load_events", side_effect=startup_error
+        ), patch.object(
+            replay_producer.time, "sleep"
+        ) as mock_sleep:
+            with self.assertRaises(RuntimeError) as exc_info:
+                replay_producer.main()
+
+        self.assertIs(exc_info.exception, startup_error)
+        mock_sleep.assert_not_called()
+        metrics_server.shutdown.assert_called_once_with()
+        metrics_server.server_close.assert_called_once_with()

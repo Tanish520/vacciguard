@@ -42,6 +42,7 @@ KAFKA_TOPIC             = os.environ.get("KAFKA_TOPIC", "vacciguard-telemetry")
 EVENTS_PER_SECOND       = float(os.environ.get("EVENTS_PER_SECOND", "5.0"))
 LOOP                    = os.environ.get("LOOP", "false").lower() == "true"
 REPLAY_METRICS_PORT     = int(os.environ.get("REPLAY_METRICS_PORT", "9109"))
+REPLAY_METRICS_DRAIN_SECONDS = float(os.environ.get("REPLAY_METRICS_DRAIN_SECONDS", "15"))
 
 
 class ReplayMetricsRegistry:
@@ -59,9 +60,19 @@ class ReplayMetricsRegistry:
         with self._lock:
             self._metrics["vacciguard_replay_loaded_events"] = event_count
 
-    def record_sent_event(self):
+    def begin_run(self, configured_events_per_second):
+        with self._lock:
+            self._metrics["vacciguard_replay_configured_rate_events_per_second"] = (
+                configured_events_per_second
+            )
+            self._metrics["vacciguard_replay_duration_seconds"] = 0.0
+            self._metrics["vacciguard_replay_completion_status"] = 0
+
+    def record_sent_event(self, duration_seconds=None):
         with self._lock:
             self._metrics["vacciguard_replay_sent_events_total"] += 1
+            if duration_seconds is not None:
+                self._metrics["vacciguard_replay_duration_seconds"] = duration_seconds
 
     def record_completion(self, *, duration_seconds, configured_events_per_second, completion_status=1):
         with self._lock:
@@ -113,6 +124,12 @@ def stop_metrics_server(server):
         return
     server.shutdown()
     server.server_close()
+
+
+def drain_metrics_server(scrape_window_seconds):
+    if scrape_window_seconds <= 0:
+        return
+    time.sleep(scrape_window_seconds)
 
 # ── Kafka connection ──────────────────────────────────────────────────────────
 
@@ -175,6 +192,9 @@ def replay(producer, events, eps, metrics_registry=None):
     start     = time.monotonic()
     next_send = start
 
+    if metrics_registry is not None:
+        metrics_registry.begin_run(configured_events_per_second=eps)
+
     completion_status = 1
     try:
         for event in events:
@@ -188,7 +208,9 @@ def replay(producer, events, eps, metrics_registry=None):
             producer.send(KAFKA_TOPIC, value=payload)
             sent     += 1
             if metrics_registry is not None:
-                metrics_registry.record_sent_event()
+                metrics_registry.record_sent_event(
+                    duration_seconds=time.monotonic() - start,
+                )
             next_send = start + sent * interval
 
             if sent % 50 == 0 or sent == total:
@@ -224,6 +246,7 @@ def main():
 
     metrics_server = start_metrics_server(REPLAY_METRICS_PORT, REPLAY_METRICS_REGISTRY)
     producer = None
+    replay_started = False
 
     try:
         events = load_events(WORKLOAD_FILE)
@@ -236,6 +259,7 @@ def main():
         while True:
             run += 1
             log.info("--- Run %d ---", run)
+            replay_started = True
             replay(
                 producer,
                 events,
@@ -248,6 +272,8 @@ def main():
         if producer is not None:
             producer.close()
             log.info("Producer finished")
+        if replay_started:
+            drain_metrics_server(REPLAY_METRICS_DRAIN_SECONDS)
         stop_metrics_server(metrics_server)
 
 
