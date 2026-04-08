@@ -1,15 +1,48 @@
 import importlib.util
+import os
 import urllib.error
 import urllib.request
 from pathlib import Path
+from typing import Dict, Optional
 import unittest
 
 
-MODULE_PATH = Path(__file__).resolve().parents[2] / "services" / "stream-processor" / "job.py"
-SPEC = importlib.util.spec_from_file_location("stream_job", MODULE_PATH)
-stream_job = importlib.util.module_from_spec(SPEC)
-assert SPEC.loader is not None
-SPEC.loader.exec_module(stream_job)
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def load_module(name: str, relative_path: str, env: Optional[Dict[str, str]] = None):
+    path = ROOT / relative_path
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+
+    original_env = {}
+    if env:
+        for key, value in env.items():
+            original_env[key] = os.environ.get(key)
+            os.environ[key] = value
+
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        for key, value in original_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+    return module
+
+
+stream_job = load_module("stream_job", "services/stream-processor/job.py")
+replay_producer = load_module(
+    "replay_producer",
+    "services/replay-producer/producer.py",
+    env={
+        "KAFKA_BOOTSTRAP_SERVERS": "kafka:9092",
+        "WORKLOAD_FILE": "/tmp/workload.ndjson",
+    },
+)
 
 
 class StreamOperationalMetricsTests(unittest.TestCase):
@@ -103,6 +136,86 @@ class StreamMetricsHttpHandlerTests(unittest.TestCase):
             self.assertEqual(content_type, "text/plain; version=0.0.4")
             self.assertIn("vacciguard_stream_latest_batch_id 9", payload)
             self.assertIn("vacciguard_stream_processed_events_total 5", payload)
+
+            with self.assertRaises(urllib.error.HTTPError) as exc_info:
+                urllib.request.urlopen(missing_url, timeout=2)
+
+            self.assertEqual(exc_info.exception.code, 404)
+            exc_info.exception.close()
+        finally:
+            server.shutdown()
+            server.server_close()
+
+
+class ReplayOperationalMetricsTests(unittest.TestCase):
+    def test_replay_metrics_render_prometheus_text(self):
+        registry = replay_producer.ReplayMetricsRegistry()
+
+        initial_rendered = registry.render_prometheus()
+
+        self.assertIn("vacciguard_replay_events_loaded_total 0", initial_rendered)
+        self.assertIn("vacciguard_replay_events_sent_total 0", initial_rendered)
+        self.assertIn("vacciguard_replay_last_run_duration_seconds 0.0", initial_rendered)
+        self.assertIn(
+            'vacciguard_replay_last_run_completion_state{state="idle"} 1',
+            initial_rendered,
+        )
+        self.assertTrue(initial_rendered.endswith("\n"))
+
+        registry.record_loaded_events(4)
+        registry.increment_sent_count()
+        registry.increment_sent_count()
+        registry.complete_run(duration_seconds=2.5, completion_state="completed")
+
+        rendered = registry.render_prometheus()
+
+        self.assertIn("vacciguard_replay_events_loaded_total 4", rendered)
+        self.assertIn("vacciguard_replay_events_sent_total 2", rendered)
+        self.assertIn("vacciguard_replay_last_run_duration_seconds 2.5", rendered)
+        self.assertIn(
+            'vacciguard_replay_last_run_completion_state{state="completed"} 1',
+            rendered,
+        )
+        self.assertTrue(rendered.endswith("\n"))
+
+
+class ReplayMetricsHttpHandlerTests(unittest.TestCase):
+    def test_replay_metrics_http_payload_returns_prometheus_text_for_registry(self):
+        registry = replay_producer.ReplayMetricsRegistry()
+        registry.record_loaded_events(3)
+        registry.increment_sent_count()
+        registry.complete_run(duration_seconds=1.75, completion_state="completed")
+
+        payload = replay_producer.metrics_http_payload(registry)
+
+        self.assertEqual(payload, registry.render_prometheus())
+        self.assertIn("vacciguard_replay_events_loaded_total 3", payload)
+        self.assertIn("vacciguard_replay_events_sent_total 1", payload)
+        self.assertIn(
+            'vacciguard_replay_last_run_completion_state{state="completed"} 1',
+            payload,
+        )
+
+    def test_replay_metrics_server_serves_metrics_and_404s_other_paths(self):
+        registry = replay_producer.ReplayMetricsRegistry()
+        registry.record_loaded_events(5)
+        registry.increment_sent_count()
+        registry.increment_sent_count()
+        registry.complete_run(duration_seconds=3.0, completion_state="completed")
+
+        server = replay_producer.start_metrics_server(0, registry)
+        host, port = server.server_address
+        metrics_url = f"http://127.0.0.1:{port}/metrics"
+        missing_url = f"http://127.0.0.1:{port}/missing"
+
+        try:
+            with urllib.request.urlopen(metrics_url, timeout=2) as response:
+                payload = response.read().decode("utf-8")
+                content_type = response.headers.get("Content-Type")
+
+            self.assertEqual(content_type, "text/plain; version=0.0.4")
+            self.assertIn("vacciguard_replay_events_loaded_total 5", payload)
+            self.assertIn("vacciguard_replay_events_sent_total 2", payload)
 
             with self.assertRaises(urllib.error.HTTPError) as exc_info:
                 urllib.request.urlopen(missing_url, timeout=2)

@@ -11,6 +11,9 @@ spec:
         - name: replay-producer
           image: 347038623570.dkr.ecr.ap-south-1.amazonaws.com/vacciguard-replay-producer:baseline
           imagePullPolicy: Always
+          ports:
+            - name: metrics
+              containerPort: 9109
           volumeMounts:
             - name: workload-dev
               mountPath: /data/workloads/dev
