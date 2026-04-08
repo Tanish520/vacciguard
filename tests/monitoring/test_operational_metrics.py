@@ -153,29 +153,25 @@ class ReplayOperationalMetricsTests(unittest.TestCase):
 
         initial_rendered = registry.render_prometheus()
 
-        self.assertIn("vacciguard_replay_events_loaded_total 0", initial_rendered)
-        self.assertIn("vacciguard_replay_events_sent_total 0", initial_rendered)
-        self.assertIn("vacciguard_replay_last_run_duration_seconds 0.0", initial_rendered)
-        self.assertIn(
-            'vacciguard_replay_last_run_completion_state{state="idle"} 1',
-            initial_rendered,
-        )
+        self.assertIn("vacciguard_replay_loaded_events 0", initial_rendered)
+        self.assertIn("vacciguard_replay_sent_events_total 0", initial_rendered)
+        self.assertIn("vacciguard_replay_configured_rate_events_per_second 0.0", initial_rendered)
+        self.assertIn("vacciguard_replay_duration_seconds 0.0", initial_rendered)
+        self.assertIn("vacciguard_replay_completion_status 0", initial_rendered)
         self.assertTrue(initial_rendered.endswith("\n"))
 
         registry.record_loaded_events(4)
-        registry.increment_sent_count()
-        registry.increment_sent_count()
-        registry.complete_run(duration_seconds=2.5, completion_state="completed")
+        registry.record_sent_event()
+        registry.record_sent_event()
+        registry.record_completion(duration_seconds=2.5, configured_events_per_second=5.0)
 
         rendered = registry.render_prometheus()
 
-        self.assertIn("vacciguard_replay_events_loaded_total 4", rendered)
-        self.assertIn("vacciguard_replay_events_sent_total 2", rendered)
-        self.assertIn("vacciguard_replay_last_run_duration_seconds 2.5", rendered)
-        self.assertIn(
-            'vacciguard_replay_last_run_completion_state{state="completed"} 1',
-            rendered,
-        )
+        self.assertIn("vacciguard_replay_loaded_events 4", rendered)
+        self.assertIn("vacciguard_replay_sent_events_total 2", rendered)
+        self.assertIn("vacciguard_replay_configured_rate_events_per_second 5.0", rendered)
+        self.assertIn("vacciguard_replay_duration_seconds 2.5", rendered)
+        self.assertIn("vacciguard_replay_completion_status 1", rendered)
         self.assertTrue(rendered.endswith("\n"))
 
 
@@ -183,25 +179,23 @@ class ReplayMetricsHttpHandlerTests(unittest.TestCase):
     def test_replay_metrics_http_payload_returns_prometheus_text_for_registry(self):
         registry = replay_producer.ReplayMetricsRegistry()
         registry.record_loaded_events(3)
-        registry.increment_sent_count()
-        registry.complete_run(duration_seconds=1.75, completion_state="completed")
+        registry.record_sent_event()
+        registry.record_completion(duration_seconds=1.75, configured_events_per_second=7.5)
 
         payload = replay_producer.metrics_http_payload(registry)
 
         self.assertEqual(payload, registry.render_prometheus())
-        self.assertIn("vacciguard_replay_events_loaded_total 3", payload)
-        self.assertIn("vacciguard_replay_events_sent_total 1", payload)
-        self.assertIn(
-            'vacciguard_replay_last_run_completion_state{state="completed"} 1',
-            payload,
-        )
+        self.assertIn("vacciguard_replay_loaded_events 3", payload)
+        self.assertIn("vacciguard_replay_sent_events_total 1", payload)
+        self.assertIn("vacciguard_replay_configured_rate_events_per_second 7.5", payload)
+        self.assertIn("vacciguard_replay_completion_status 1", payload)
 
     def test_replay_metrics_server_serves_metrics_and_404s_other_paths(self):
         registry = replay_producer.ReplayMetricsRegistry()
         registry.record_loaded_events(5)
-        registry.increment_sent_count()
-        registry.increment_sent_count()
-        registry.complete_run(duration_seconds=3.0, completion_state="completed")
+        registry.record_sent_event()
+        registry.record_sent_event()
+        registry.record_completion(duration_seconds=3.0, configured_events_per_second=4.0)
 
         server = replay_producer.start_metrics_server(0, registry)
         host, port = server.server_address
@@ -214,8 +208,10 @@ class ReplayMetricsHttpHandlerTests(unittest.TestCase):
                 content_type = response.headers.get("Content-Type")
 
             self.assertEqual(content_type, "text/plain; version=0.0.4")
-            self.assertIn("vacciguard_replay_events_loaded_total 5", payload)
-            self.assertIn("vacciguard_replay_events_sent_total 2", payload)
+            self.assertIn("vacciguard_replay_loaded_events 5", payload)
+            self.assertIn("vacciguard_replay_sent_events_total 2", payload)
+            self.assertIn("vacciguard_replay_configured_rate_events_per_second 4.0", payload)
+            self.assertIn("vacciguard_replay_completion_status 1", payload)
 
             with self.assertRaises(urllib.error.HTTPError) as exc_info:
                 urllib.request.urlopen(missing_url, timeout=2)
