@@ -33,7 +33,7 @@ data:
           "targets": [
             {
               "datasource": "Prometheus",
-              "expr": "vacciguard_replay_completion_status and on(pod) topk(1, vacciguard_replay_completion_timestamp_seconds)",
+              "expr": "vacciguard_replay_completion_status and on(pod) topk(1, vacciguard_replay_run_started_timestamp_seconds)",
               "refId": "A"
             }
           ]

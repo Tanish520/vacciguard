@@ -206,11 +206,12 @@ class MonitoringManifestTests(unittest.TestCase):
 
         replay_status_expr = replay_completion_status_target_expr(dashboard)
         self.assertIn("vacciguard_replay_completion_status", replay_status_expr)
-        self.assertIn("vacciguard_replay_completion_timestamp_seconds", replay_status_expr)
+        self.assertIn("vacciguard_replay_run_started_timestamp_seconds", replay_status_expr)
         self.assertIn("topk(1", replay_status_expr)
         self.assertIn("on(pod)", replay_status_expr)
         self.assertIn(" and ", replay_status_expr)
         self.assertNotIn("timestamp(", replay_status_expr)
+        self.assertNotIn("vacciguard_replay_completion_timestamp_seconds", replay_status_expr)
 
         for panel in panels:
             for target in panel.get("targets", []):
