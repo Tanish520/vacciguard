@@ -48,36 +48,34 @@ class ReplayMetricsRegistry:
     def __init__(self):
         self._lock = threading.Lock()
         self._metrics = {
-            "vacciguard_replay_events_loaded_total": 0,
-            "vacciguard_replay_events_sent_total": 0,
-            "vacciguard_replay_last_run_duration_seconds": 0.0,
-            "vacciguard_replay_last_run_completion_state": "idle",
+            "vacciguard_replay_loaded_events": 0,
+            "vacciguard_replay_sent_events_total": 0,
+            "vacciguard_replay_configured_rate_events_per_second": 0.0,
+            "vacciguard_replay_duration_seconds": 0.0,
+            "vacciguard_replay_completion_status": 0,
         }
 
     def record_loaded_events(self, event_count):
         with self._lock:
-            self._metrics["vacciguard_replay_events_loaded_total"] = event_count
+            self._metrics["vacciguard_replay_loaded_events"] = event_count
 
-    def increment_sent_count(self, count=1):
+    def record_sent_event(self):
         with self._lock:
-            self._metrics["vacciguard_replay_events_sent_total"] += count
+            self._metrics["vacciguard_replay_sent_events_total"] += 1
 
-    def complete_run(self, *, duration_seconds, completion_state):
+    def record_completion(self, *, duration_seconds, configured_events_per_second, completion_status=1):
         with self._lock:
-            self._metrics["vacciguard_replay_last_run_duration_seconds"] = duration_seconds
-            self._metrics["vacciguard_replay_last_run_completion_state"] = completion_state
+            self._metrics["vacciguard_replay_duration_seconds"] = duration_seconds
+            self._metrics["vacciguard_replay_configured_rate_events_per_second"] = (
+                configured_events_per_second
+            )
+            self._metrics["vacciguard_replay_completion_status"] = completion_status
 
     def render_prometheus(self):
         with self._lock:
             snapshot = tuple(self._metrics.items())
 
-        lines = []
-        for name, value in snapshot:
-            if name == "vacciguard_replay_last_run_completion_state":
-                lines.append(f'{name}{{state="{value}"}} 1')
-            else:
-                lines.append(f"{name} {value}")
-        return "\n".join(lines) + "\n"
+        return "\n".join(f"{name} {value}" for name, value in snapshot) + "\n"
 
 
 REPLAY_METRICS_REGISTRY = ReplayMetricsRegistry()
@@ -177,7 +175,7 @@ def replay(producer, events, eps, metrics_registry=None):
     start     = time.monotonic()
     next_send = start
 
-    completion_state = "completed"
+    completion_status = 1
     try:
         for event in events:
             # wait until the scheduled send time
@@ -190,7 +188,7 @@ def replay(producer, events, eps, metrics_registry=None):
             producer.send(KAFKA_TOPIC, value=payload)
             sent     += 1
             if metrics_registry is not None:
-                metrics_registry.increment_sent_count()
+                metrics_registry.record_sent_event()
             next_send = start + sent * interval
 
             if sent % 50 == 0 or sent == total:
@@ -200,14 +198,15 @@ def replay(producer, events, eps, metrics_registry=None):
 
         producer.flush()
     except Exception:
-        completion_state = "failed"
+        completion_status = 2
         raise
     finally:
         elapsed = time.monotonic() - start
         if metrics_registry is not None:
-            metrics_registry.complete_run(
+            metrics_registry.record_completion(
                 duration_seconds=elapsed,
-                completion_state=completion_state,
+                configured_events_per_second=eps,
+                completion_status=completion_status,
             )
 
     log.info(
