@@ -124,6 +124,26 @@ class BatchSummaryLoggingTests(unittest.TestCase):
         self.assertIn("p95_e2e_latency_s=n/a", logged_message)
 
 
+class StreamMetricsRegistryTests(unittest.TestCase):
+    def test_update_batch_metrics_renders_latest_and_total_metrics(self):
+        registry = stream_job.StreamMetricsRegistry()
+
+        registry.update_batch_metrics(
+            batch_id=3,
+            processed_events=5,
+            invalid_events=1,
+            deduplicated_events=2,
+            breach_events=4,
+            avg_latency_seconds=1.5,
+            p95_latency_seconds=2.0,
+        )
+
+        rendered = registry.render_prometheus()
+
+        self.assertIn("vacciguard_stream_latest_batch_id 3", rendered)
+        self.assertIn("vacciguard_stream_processed_events_total 5", rendered)
+
+
 class BatchSummaryBehaviorTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
