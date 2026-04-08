@@ -9,7 +9,6 @@
 ## What This Does Not Include Yet
 
 - applying AWS resources
-- monitoring stack rollout
 - optimized deployment behavior
 
 ## Monitoring Stack
@@ -24,6 +23,40 @@ Before merging changes to the monitoring stack, render the Prometheus and Grafan
 kubectl kustomize infra/monitoring/prometheus > /tmp/vacciguard-prometheus.yaml
 kubectl kustomize infra/monitoring/grafana > /tmp/vacciguard-grafana.yaml
 ```
+
+To deploy the in-cluster monitoring stack on the baseline cluster:
+
+```bash
+kubectl apply -k infra/monitoring/prometheus
+kubectl apply -k infra/monitoring/grafana
+```
+
+To inspect the UI locally:
+
+```bash
+kubectl port-forward -n monitoring svc/prometheus 9090:9090
+kubectl port-forward -n monitoring svc/grafana 3000:3000
+```
+
+The baseline pipeline now exposes Prometheus text metrics directly from the application containers:
+
+- stream processor: `http://<stream-pod>:9108/metrics`
+- replay producer: `http://<replay-pod>:9109/metrics`
+
+Prometheus scrapes only those explicit endpoints:
+
+- `stream-processor-metrics`
+- `replay-producer-metrics`
+
+The first operational dashboard, `VacciGuard Baseline Overview`, is backed by those live metrics and shows:
+
+- replay sent events
+- replay completion status
+- stream processed, invalid, deduplicated, and breach totals
+- latest batch average latency
+- latest batch P95 latency
+
+Important caveat: replay producer metrics are job-scoped. The replay completion panel is reliable while the replay pod is still present, but those metrics disappear when Kubernetes garbage-collects the finished job pod. The baseline job keeps a short drain window through `REPLAY_METRICS_DRAIN_SECONDS` so Prometheus and Grafana have time to scrape the final completion metrics before the pod exits.
 
 ## Validate The Scaffold
 

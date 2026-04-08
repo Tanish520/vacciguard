@@ -54,6 +54,7 @@ class ReplayMetricsRegistry:
             "vacciguard_replay_configured_rate_events_per_second": 0.0,
             "vacciguard_replay_duration_seconds": 0.0,
             "vacciguard_replay_completion_status": 0,
+            "vacciguard_replay_run_started_timestamp_seconds": 0.0,
             "vacciguard_replay_completion_timestamp_seconds": 0.0,
         }
 
@@ -61,13 +62,18 @@ class ReplayMetricsRegistry:
         with self._lock:
             self._metrics["vacciguard_replay_loaded_events"] = event_count
 
-    def begin_run(self, configured_events_per_second):
+    def begin_run(self, configured_events_per_second, run_started_timestamp_seconds=None):
         with self._lock:
             self._metrics["vacciguard_replay_configured_rate_events_per_second"] = (
                 configured_events_per_second
             )
             self._metrics["vacciguard_replay_duration_seconds"] = 0.0
             self._metrics["vacciguard_replay_completion_status"] = 0
+            self._metrics["vacciguard_replay_run_started_timestamp_seconds"] = (
+                time.time()
+                if run_started_timestamp_seconds is None
+                else run_started_timestamp_seconds
+            )
             self._metrics["vacciguard_replay_completion_timestamp_seconds"] = 0.0
 
     def record_sent_event(self, duration_seconds=None):

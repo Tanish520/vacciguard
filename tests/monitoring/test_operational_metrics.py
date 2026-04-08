@@ -159,10 +159,15 @@ class ReplayOperationalMetricsTests(unittest.TestCase):
         self.assertIn("vacciguard_replay_configured_rate_events_per_second 0.0", initial_rendered)
         self.assertIn("vacciguard_replay_duration_seconds 0.0", initial_rendered)
         self.assertIn("vacciguard_replay_completion_status 0", initial_rendered)
+        self.assertIn("vacciguard_replay_run_started_timestamp_seconds 0.0", initial_rendered)
         self.assertIn("vacciguard_replay_completion_timestamp_seconds 0.0", initial_rendered)
         self.assertTrue(initial_rendered.endswith("\n"))
 
         registry.record_loaded_events(4)
+        registry.begin_run(
+            configured_events_per_second=5.0,
+            run_started_timestamp_seconds=1712663990.0,
+        )
         registry.record_sent_event()
         registry.record_sent_event()
         registry.record_completion(
@@ -178,6 +183,7 @@ class ReplayOperationalMetricsTests(unittest.TestCase):
         self.assertIn("vacciguard_replay_configured_rate_events_per_second 5.0", rendered)
         self.assertIn("vacciguard_replay_duration_seconds 2.5", rendered)
         self.assertIn("vacciguard_replay_completion_status 1", rendered)
+        self.assertIn("vacciguard_replay_run_started_timestamp_seconds 1712663990.0", rendered)
         self.assertIn("vacciguard_replay_completion_timestamp_seconds 1712664000.0", rendered)
         self.assertTrue(rendered.endswith("\n"))
 
@@ -191,7 +197,10 @@ class ReplayOperationalMetricsTests(unittest.TestCase):
             completion_timestamp_seconds=1712664000.0,
         )
 
-        registry.begin_run(configured_events_per_second=8.0)
+        registry.begin_run(
+            configured_events_per_second=8.0,
+            run_started_timestamp_seconds=1712664050.0,
+        )
         rendered = registry.render_prometheus()
 
         self.assertIn("vacciguard_replay_loaded_events 4", rendered)
@@ -199,6 +208,7 @@ class ReplayOperationalMetricsTests(unittest.TestCase):
         self.assertIn("vacciguard_replay_configured_rate_events_per_second 8.0", rendered)
         self.assertIn("vacciguard_replay_duration_seconds 0.0", rendered)
         self.assertIn("vacciguard_replay_completion_status 0", rendered)
+        self.assertIn("vacciguard_replay_run_started_timestamp_seconds 1712664050.0", rendered)
         self.assertIn("vacciguard_replay_completion_timestamp_seconds 0.0", rendered)
 
 
@@ -233,6 +243,7 @@ class ReplayLifecycleTests(unittest.TestCase):
         self.assertIn("vacciguard_replay_configured_rate_events_per_second 4.0", rendered)
         self.assertIn("vacciguard_replay_duration_seconds 0.5", rendered)
         self.assertIn("vacciguard_replay_completion_status 1", rendered)
+        self.assertIn("vacciguard_replay_run_started_timestamp_seconds 1712664000.0", rendered)
         self.assertIn("vacciguard_replay_completion_timestamp_seconds 1712664000.0", rendered)
         ack_future_one.get.assert_called_once()
         ack_future_two.get.assert_called_once()
@@ -259,6 +270,7 @@ class ReplayLifecycleTests(unittest.TestCase):
         self.assertIn("vacciguard_replay_configured_rate_events_per_second 6.0", rendered)
         self.assertIn("vacciguard_replay_duration_seconds 0.25", rendered)
         self.assertIn("vacciguard_replay_completion_status 2", rendered)
+        self.assertIn("vacciguard_replay_run_started_timestamp_seconds 1712664300.0", rendered)
         self.assertIn("vacciguard_replay_completion_timestamp_seconds 1712664300.0", rendered)
         producer.flush.assert_not_called()
 
@@ -281,6 +293,7 @@ class ReplayMetricsHttpHandlerTests(unittest.TestCase):
         self.assertIn("vacciguard_replay_sent_events_total 1", payload)
         self.assertIn("vacciguard_replay_configured_rate_events_per_second 7.5", payload)
         self.assertIn("vacciguard_replay_completion_status 1", payload)
+        self.assertIn("vacciguard_replay_run_started_timestamp_seconds", payload)
         self.assertIn("vacciguard_replay_completion_timestamp_seconds 1712664400.0", payload)
 
     def test_replay_metrics_server_serves_metrics_and_404s_other_paths(self):
