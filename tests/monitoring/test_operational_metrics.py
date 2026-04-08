@@ -192,15 +192,27 @@ class ReplayOperationalMetricsTests(unittest.TestCase):
 
 
 class ReplayLifecycleTests(unittest.TestCase):
+    class FakeClock:
+        def __init__(self, *values):
+            self._values = list(values)
+            self._last = values[-1] if values else 0.0
+
+        def monotonic(self):
+            if self._values:
+                self._last = self._values.pop(0)
+            return self._last
+
     def test_replay_updates_metrics_during_successful_run(self):
         producer = Mock()
+        ack_future_one = Mock()
+        ack_future_two = Mock()
+        producer.send.side_effect = [ack_future_one, ack_future_two]
         registry = replay_producer.ReplayMetricsRegistry()
         events = [{"event_id": "a"}, {"event_id": "b"}]
+        clock = self.FakeClock(100.0, 100.0, 100.2, 100.25, 100.5)
 
         with patch.object(replay_producer.time, "sleep"), patch.object(
-            replay_producer.time,
-            "monotonic",
-            side_effect=[100.0, 100.0, 100.2, 100.25, 100.5, 100.5, 100.5],
+            replay_producer.time, "monotonic", side_effect=clock.monotonic
         ):
             replay_producer.replay(producer, events, 4.0, metrics_registry=registry)
 
@@ -210,15 +222,20 @@ class ReplayLifecycleTests(unittest.TestCase):
         self.assertIn("vacciguard_replay_configured_rate_events_per_second 4.0", rendered)
         self.assertIn("vacciguard_replay_duration_seconds 0.5", rendered)
         self.assertIn("vacciguard_replay_completion_status 1", rendered)
+        ack_future_one.get.assert_called_once()
+        ack_future_two.get.assert_called_once()
         producer.flush.assert_called_once_with()
 
-    def test_replay_updates_failure_status_and_duration(self):
+    def test_replay_does_not_increment_sent_total_when_delivery_confirmation_fails(self):
         producer = Mock()
-        producer.send.side_effect = RuntimeError("send failed")
+        ack_future = Mock()
+        ack_future.get.side_effect = RuntimeError("ack failed")
+        producer.send.return_value = ack_future
         registry = replay_producer.ReplayMetricsRegistry()
         events = [{"event_id": "a"}]
+        clock = self.FakeClock(50.0, 50.0, 50.25)
 
-        with patch.object(replay_producer.time, "monotonic", side_effect=[50.0, 50.0, 50.25]):
+        with patch.object(replay_producer.time, "monotonic", side_effect=clock.monotonic):
             with self.assertRaises(RuntimeError):
                 replay_producer.replay(producer, events, 6.0, metrics_registry=registry)
 
@@ -305,11 +322,12 @@ class ReplayMainLifecycleTests(unittest.TestCase):
         metrics_server.shutdown.assert_called_once_with()
         metrics_server.server_close.assert_called_once_with()
 
-    def test_main_shuts_down_metrics_server_when_startup_fails_without_drain(self):
+    def test_main_records_failure_and_drains_metrics_server_when_startup_fails(self):
         metrics_server = Mock()
+        registry = replay_producer.ReplayMetricsRegistry()
         startup_error = RuntimeError("load failed")
 
-        with patch.object(replay_producer, "REPLAY_METRICS_REGISTRY", replay_producer.ReplayMetricsRegistry()), patch.object(
+        with patch.object(replay_producer, "REPLAY_METRICS_REGISTRY", registry), patch.object(
             replay_producer, "REPLAY_METRICS_DRAIN_SECONDS", 2.0
         ), patch.object(
             replay_producer, "start_metrics_server", return_value=metrics_server
@@ -322,6 +340,9 @@ class ReplayMainLifecycleTests(unittest.TestCase):
                 replay_producer.main()
 
         self.assertIs(exc_info.exception, startup_error)
-        mock_sleep.assert_not_called()
+        rendered = registry.render_prometheus()
+        self.assertIn("vacciguard_replay_configured_rate_events_per_second 5.0", rendered)
+        self.assertIn("vacciguard_replay_completion_status 2", rendered)
+        mock_sleep.assert_called_once_with(2.0)
         metrics_server.shutdown.assert_called_once_with()
         metrics_server.server_close.assert_called_once_with()

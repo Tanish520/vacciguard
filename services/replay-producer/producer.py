@@ -205,8 +205,9 @@ def replay(producer, events, eps, metrics_registry=None):
                 time.sleep(gap)
 
             payload = encode_event_payload(event)
-            producer.send(KAFKA_TOPIC, value=payload)
-            sent     += 1
+            send_future = producer.send(KAFKA_TOPIC, value=payload)
+            send_future.get()
+            sent += 1
             if metrics_registry is not None:
                 metrics_registry.record_sent_event(
                     duration_seconds=time.monotonic() - start,
@@ -246,6 +247,8 @@ def main():
 
     metrics_server = start_metrics_server(REPLAY_METRICS_PORT, REPLAY_METRICS_REGISTRY)
     producer = None
+    REPLAY_METRICS_REGISTRY.begin_run(configured_events_per_second=EVENTS_PER_SECOND)
+    startup_started_at = time.monotonic()
     replay_started = False
 
     try:
@@ -268,12 +271,19 @@ def main():
             )
             if not LOOP:
                 break
+    except Exception:
+        if not replay_started:
+            REPLAY_METRICS_REGISTRY.record_completion(
+                duration_seconds=time.monotonic() - startup_started_at,
+                configured_events_per_second=EVENTS_PER_SECOND,
+                completion_status=2,
+            )
+        raise
     finally:
         if producer is not None:
             producer.close()
             log.info("Producer finished")
-        if replay_started:
-            drain_metrics_server(REPLAY_METRICS_DRAIN_SECONDS)
+        drain_metrics_server(REPLAY_METRICS_DRAIN_SECONDS)
         stop_metrics_server(metrics_server)
 
 
