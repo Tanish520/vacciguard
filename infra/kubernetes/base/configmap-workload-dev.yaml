@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vacciguard-workload-dev
+data:
+  events.ndjson: |
+    {"event_id": "evt-000001", "device_id": "FR-0101", "event_time": "2026-04-05T10:00:00Z", "temperature_c": 5.7, "door_open": false, "battery_pct": 68, "location_lat": 26.9124, "location_lon": 75.7873}
+    {"event_id": "evt-000002", "device_id": "FR-0102", "event_time": "2026-04-05T10:00:00Z", "temperature_c": 6.2, "door_open": false, "battery_pct": 75, "location_lat": 24.5854, "location_lon": 73.7125}
+    {"event_id": "evt-000003", "device_id": "FR-0103", "event_time": "2026-04-05T10:00:00Z", "temperature_c": 3.8, "door_open": false, "battery_pct": 91, "location_lat": 25.2138, "location_lon": 75.8648}
+    {"event_id": "evt-000004", "device_id": "FR-0101", "event_time": "2026-04-05T10:00:00Z", "temperature_c": 3.3, "door_open": false, "battery_pct": 91, "location_lat": 26.9124, "location_lon": 75.7873}
+    {"event_id": "evt-000005", "device_id": "FR-0102", "event_time": "2026-04-05T10:00:00Z", "temperature_c": 6.9, "door_open": false, "battery_pct": 70, "location_lat": 24.5854, "location_lon": 73.7125}
+    {"event_id": "evt-000006", "device_id": "FR-0103", "event_time": "2026-04-05T10:00:01Z", "temperature_c": 5.5, "door_open": false, "battery_pct": 69, "location_lat": 25.2138, "location_lon": 75.8648}
+    {"event_id": "evt-000007", "device_id": "FR-0101", "event_time": "2026-04-05T10:00:01Z", "temperature_c": 2.9, "door_open": false, "battery_pct": 74, "location_lat": 26.9124, "location_lon": 75.7873}
+    {"event_id": "evt-000008", "device_id": "FR-0102", "event_time": "2026-04-05T10:00:01Z", "temperature_c": 3.9, "door_open": false, "battery_pct": 87, "location_lat": 24.5854, "location_lon": 73.7125}
+    {"event_id": "evt-000009", "device_id": "FR-0103", "event_time": "2026-04-05T10:00:01Z", "temperature_c": 2.9, "door_open": false, "battery_pct": 74, "location_lat": 25.2138, "location_lon": 75.8648}
+    {"event_id": "evt-000010", "device_id": "FR-0101", "event_time": "2026-04-05T10:00:01Z", "temperature_c": 6.1, "door_open": false, "battery_pct": 90, "location_lat": 26.9124, "location_lon": 75.7873}
+    {"event_id": "evt-000011", "device_id": "FR-0102", "event_time": "2026-04-05T10:00:02Z", "temperature_c": 5.3, "door_open": false, "battery_pct": 75, "location_lat": 24.5854, "location_lon": 73.7125}
+    {"event_id": "evt-000012", "device_id": "FR-0103", "event_time": "2026-04-05T10:00:02Z", "temperature_c": 4.9, "door_open": false, "battery_pct": 76, "location_lat": 25.2138, "location_lon": 75.8648}
+    {"event_id": "evt-000013", "device_id": "FR-0101", "event_time": "2026-04-05T10:00:02Z", "temperature_c": 6.5, "door_open": false, "battery_pct": 68, "location_lat": 26.9124, "location_lon": 75.7873}
+    {"event_id": "evt-000014", "device_id": "FR-0102", "event_time": "2026-04-05T10:00:02Z", "temperature_c": 6.3, "door_open": false, "battery_pct": 73, "location_lat": 24.5854, "location_lon": 73.7125}
+    {"event_id": "evt-000015", "device_id": "FR-0103", "event_time": "2026-04-05T10:00:02Z", "temperature_c": 6.0, "door_open": false, "battery_pct": 78, "location_lat": 25.2138, "location_lon": 75.8648}

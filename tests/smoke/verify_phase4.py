@@ -60,6 +60,7 @@ def main() -> int:
     workload = project_root / "data" / "workloads" / "dev" / "events.ndjson"
     processed_dir = project_root / "data" / "output" / "processed"
     invalid_dir = project_root / "data" / "output" / "invalid"
+    breach_window_dir = project_root / "data" / "output" / "breach_windows"
 
     if not workload.exists():
         return fail(f"Missing workload file: {workload}")
@@ -67,6 +68,10 @@ def main() -> int:
     processed_files = wait_for_files(processed_dir, "*.parquet", timeout_seconds=30)
     if not processed_files:
         return fail(f"No processed parquet files found in {processed_dir}")
+
+    breach_window_files = wait_for_files(breach_window_dir, "*.json", timeout_seconds=30)
+    if not breach_window_files:
+        return fail(f"No breach window JSON files found in {breach_window_dir}")
 
     try:
         redis_payload = wait_for_redis_key("device:status:FR-0102", timeout_seconds=30)
@@ -89,6 +94,7 @@ def main() -> int:
         invalid_files = sorted(path for path in invalid_dir.glob("*.json") if path.is_file())
 
     print(f"Smoke verification passed. Processed files: {len(processed_files)}")
+    print(f"Breach window files: {len(breach_window_files)}")
     print("Redis payload verified for device:status:FR-0102")
     print(f"Invalid files present: {len(invalid_files)}")
     return 0

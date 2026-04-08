@@ -17,6 +17,8 @@ Environment variables (all required unless noted):
 import logging
 import os
 import time
+import json
+from datetime import datetime, timezone
 
 from kafka import KafkaProducer
 from kafka.errors import NoBrokersAvailable
@@ -66,16 +68,23 @@ def connect(retries=15, delay=5):
 # ── Workload loading ──────────────────────────────────────────────────────────
 
 def load_events(path):
-    """Load all non-empty lines from the NDJSON file as pre-encoded bytes."""
+    """Load all non-empty lines from the NDJSON file as JSON payloads."""
     events = []
     with open(path, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if line:
-                events.append(line.encode("utf-8"))
+                events.append(json.loads(line))
     if not events:
         raise ValueError(f"Workload file is empty: {path}")
     return events
+
+
+def encode_event_payload(event, sent_at=None):
+    stamped_event = dict(event)
+    replay_sent_at = sent_at or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    stamped_event["replay_sent_at"] = replay_sent_at
+    return json.dumps(stamped_event, separators=(",", ":")).encode("utf-8")
 
 # ── Replay ────────────────────────────────────────────────────────────────────
 
@@ -92,13 +101,14 @@ def replay(producer, events, eps):
     start     = time.monotonic()
     next_send = start
 
-    for payload in events:
+    for event in events:
         # wait until the scheduled send time
         now = time.monotonic()
         gap = next_send - now
         if gap > 0:
             time.sleep(gap)
 
+        payload = encode_event_payload(event)
         producer.send(KAFKA_TOPIC, value=payload)
         sent     += 1
         next_send = start + sent * interval
