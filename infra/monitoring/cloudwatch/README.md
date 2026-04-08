@@ -8,4 +8,4 @@ They should be used to inspect:
 - pod and container runtime state
 - workload logs for Kafka, replay producer, and stream processor
 
-This repository pass documents the expected baseline signals and activation direction. It does not yet fully automate Container Insights enablement.
+This document captures the expected baseline signals and activation direction. It does not yet fully automate Container Insights enablement.
