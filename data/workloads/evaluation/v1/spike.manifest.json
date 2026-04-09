@@ -3,11 +3,11 @@
   "scenario": "spike",
   "devices": 30,
   "duration_minutes": 12,
-  "target_eps": 60.0,
+  "target_eps": 1000.0,
   "mix_targets": {
     "duplicates_pct": 0.05,
     "late_pct": 0.03,
     "invalid_pct": 0.02
   },
-  "event_count": 47520
+  "event_count": 792000
 }

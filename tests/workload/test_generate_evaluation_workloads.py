@@ -22,15 +22,15 @@ class EvaluationWorkloadGeneratorTests(unittest.TestCase):
         self.assertEqual(metadata["workload_family_version"], "evaluation-workload-v1")
         self.assertEqual(metadata["devices"], 30)
         self.assertEqual(metadata["duration_minutes"], 12)
-        self.assertEqual(metadata["normal_eps"], 6.0)
-        self.assertEqual(metadata["spike_eps"], 60.0)
+        self.assertEqual(metadata["normal_eps"], 100.0)
+        self.assertEqual(metadata["spike_eps"], 1000.0)
 
     def test_generate_normal_scenario_creates_expected_base_volume(self):
         metadata = generator.build_workload_family_metadata()
         events = generator.generate_scenario("normal", metadata)
 
-        self.assertGreaterEqual(len(events), 4320)
-        self.assertLess(len(events), 5000)
+        self.assertGreaterEqual(len(events), 72000)
+        self.assertLess(len(events), 90000)
         self.assertTrue(all("event_id" in event for event in events))
 
     def test_write_outputs_creates_ndjson_and_manifest(self):
@@ -44,7 +44,7 @@ class EvaluationWorkloadGeneratorTests(unittest.TestCase):
 
         self.assertEqual(manifest["scenario"], "normal")
         self.assertEqual(manifest["workload_family_version"], "evaluation-workload-v1")
-        self.assertGreater(len(lines), 4000)
+        self.assertGreater(len(lines), 70000)
 
     def test_main_writes_all_v1_scenarios(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -78,7 +78,7 @@ class EvaluationScenarioMixTests(unittest.TestCase):
         metadata = generator.build_workload_family_metadata()
         manifest = generator.build_scenario_manifest("spike", metadata, event_count=43200)
 
-        self.assertEqual(manifest["target_eps"], 60.0)
+        self.assertEqual(manifest["target_eps"], 1000.0)
 
     def test_failure_recovery_manifest_records_fault_model(self):
         metadata = generator.build_workload_family_metadata()

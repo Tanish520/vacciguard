@@ -15,3 +15,29 @@ Each `.manifest.json` file records:
 - target replay rate
 - target mix percentages
 - fault model when applicable
+
+## Regeneration Policy
+
+The `.events.ndjson` files in this directory are generated artifacts and should be regenerated locally instead of being treated as the canonical source of truth in Git.
+
+Use:
+
+```bash
+python3 scripts/generate-evaluation-workloads.py
+```
+
+The canonical shared inputs for teammates are:
+
+- `scripts/generate-evaluation-workloads.py`
+- the committed `.manifest.json` files
+- this README
+
+Current shared target rates are:
+
+- `normal`: `100 eps`
+- `spike`: `1000 eps`
+- `failure-recovery`: `100 eps`
+
+Current shared fault model is:
+
+- `failure-recovery`: restart the stream processor `6 minutes` into the run

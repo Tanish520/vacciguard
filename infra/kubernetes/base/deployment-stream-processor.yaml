@@ -15,7 +15,7 @@ spec:
       serviceAccountName: vacciguard-pipeline
       containers:
         - name: stream-processor
-          image: 347038623570.dkr.ecr.ap-south-1.amazonaws.com/vacciguard-stream-processor:baseline-bundled-20260408
+          image: 347038623570.dkr.ecr.ap-south-1.amazonaws.com/vacciguard-stream-processor:baseline-monitoring-20260409
           imagePullPolicy: Always
           ports:
             - name: metrics

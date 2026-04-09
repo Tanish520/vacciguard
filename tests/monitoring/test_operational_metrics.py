@@ -1,5 +1,6 @@
 import importlib.util
 import os
+import tempfile
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -273,6 +274,66 @@ class ReplayLifecycleTests(unittest.TestCase):
         self.assertIn("vacciguard_replay_run_started_timestamp_seconds 1712664300.0", rendered)
         self.assertIn("vacciguard_replay_completion_timestamp_seconds 1712664300.0", rendered)
         producer.flush.assert_not_called()
+
+
+class ReplayWorkloadResolutionTests(unittest.TestCase):
+    def test_resolve_workload_file_returns_local_path_unchanged(self):
+        local_path = "/tmp/workload.ndjson"
+
+        resolved_path = replay_producer.resolve_workload_file(local_path)
+
+        self.assertEqual(resolved_path, local_path)
+
+    def test_resolve_workload_file_downloads_s3_uri_to_temporary_file(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            expected_payload = b'{"event_id":"s3-1"}\n'
+            fake_client = Mock()
+
+            def download_fileobj(bucket, key, file_obj):
+                self.assertEqual(bucket, "vacciguard-baseline-data")
+                self.assertEqual(key, "evaluations/spike/workloads/spike.events.ndjson")
+                file_obj.write(expected_payload)
+
+            fake_client.download_fileobj.side_effect = download_fileobj
+
+            with patch.object(replay_producer, "boto3") as mock_boto3:
+                mock_boto3.client.return_value = fake_client
+
+                resolved_path = replay_producer.resolve_workload_file(
+                    "s3://vacciguard-baseline-data/evaluations/spike/workloads/spike.events.ndjson",
+                    temp_dir=temp_dir,
+                )
+
+            self.assertTrue(resolved_path.startswith(temp_dir))
+            self.assertEqual(Path(resolved_path).read_bytes(), expected_payload)
+
+    def test_main_resolves_s3_workload_before_loading_events(self):
+        metrics_server = Mock()
+        producer = Mock()
+
+        with patch.object(
+            replay_producer, "REPLAY_METRICS_REGISTRY", replay_producer.ReplayMetricsRegistry()
+        ), patch.object(
+            replay_producer, "WORKLOAD_FILE", "s3://vacciguard-baseline-data/evaluations/spike/workloads/spike.events.ndjson"
+        ), patch.object(
+            replay_producer, "start_metrics_server", return_value=metrics_server
+        ), patch.object(
+            replay_producer, "resolve_workload_file", return_value="/tmp/downloaded-spike.ndjson"
+        ) as mock_resolve, patch.object(
+            replay_producer, "load_events", return_value=[{"event_id": "a"}]
+        ) as mock_load, patch.object(
+            replay_producer, "connect", return_value=producer
+        ), patch.object(
+            replay_producer, "replay"
+        ), patch.object(
+            replay_producer.time, "sleep"
+        ):
+            replay_producer.main()
+
+        mock_resolve.assert_called_once_with(
+            "s3://vacciguard-baseline-data/evaluations/spike/workloads/spike.events.ndjson"
+        )
+        mock_load.assert_called_once_with("/tmp/downloaded-spike.ndjson")
 
 
 class ReplayMetricsHttpHandlerTests(unittest.TestCase):
