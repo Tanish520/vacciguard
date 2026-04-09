@@ -12,22 +12,22 @@ DEFAULT_METADATA = {
     "workload_family_version": "evaluation-workload-v1",
     "devices": 30,
     "duration_minutes": 12,
-    "normal_eps": 6.0,
-    "spike_eps": 60.0,
+    "normal_eps": 100.0,
+    "spike_eps": 1000.0,
     "seed": 20260408,
 }
 
 SCENARIO_DEFAULTS = {
     "normal": {
-        "target_eps": 6.0,
+        "target_eps": 100.0,
         "mix_targets": {"duplicates_pct": 0.05, "late_pct": 0.03, "invalid_pct": 0.02},
     },
     "spike": {
-        "target_eps": 60.0,
+        "target_eps": 1000.0,
         "mix_targets": {"duplicates_pct": 0.05, "late_pct": 0.03, "invalid_pct": 0.02},
     },
     "failure-recovery": {
-        "target_eps": 6.0,
+        "target_eps": 100.0,
         "mix_targets": {"duplicates_pct": 0.05, "late_pct": 0.03, "invalid_pct": 0.02},
         "fault_model": {"type": "stream-processor-restart", "offset_minutes": 6},
     },

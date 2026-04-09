@@ -16,6 +16,7 @@ WORKLOAD_FAMILY_VERSION="${WORKLOAD_FAMILY_VERSION:-evaluation-workload-v1}"
 WORKLOAD_BASE_DIR="${WORKLOAD_BASE_DIR:-$ROOT_DIR/data/workloads/evaluation/v1}"
 WORKLOAD_FILE="${WORKLOAD_BASE_DIR}/${SCENARIO}.events.ndjson"
 WORKLOAD_MANIFEST="${WORKLOAD_BASE_DIR}/${SCENARIO}.manifest.json"
+MAX_WORKLOAD_CONFIGMAP_BYTES="${MAX_WORKLOAD_CONFIGMAP_BYTES:-921600}"
 
 mkdir -p "$REPORT_DIR"
 
@@ -54,6 +55,20 @@ import sys
 with open(sys.argv[1], encoding="utf-8") as handle:
     payload = json.load(handle)
 print(payload[sys.argv[2]])
+PY
+}
+
+json_file_optional_json() {
+  local file_path="$1"
+  local key="$2"
+  python3 - "$file_path" "$key" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    payload = json.load(handle)
+value = payload.get(sys.argv[2])
+print("" if value is None else json.dumps(value, sort_keys=True))
 PY
 }
 
@@ -104,7 +119,13 @@ REPLAY_PRODUCER_IMAGE="${REPLAY_PRODUCER_IMAGE:-$(awk '/image:/{print $2; exit}'
 REDIS_ACTIVE_BREACHES_KEY="${REDIS_ACTIVE_BREACHES_KEY:-active_breaches}"
 WORKLOAD_TARGET_EPS="${WORKLOAD_TARGET_EPS:-$(json_file_value "$WORKLOAD_MANIFEST" target_eps)}"
 WORKLOAD_EVENT_COUNT="$(json_file_value "$WORKLOAD_MANIFEST" event_count)"
+FAULT_MODEL_JSON="$(json_file_optional_json "$WORKLOAD_MANIFEST" fault_model)"
+WORKLOAD_SIZE_BYTES="$(wc -c < "$WORKLOAD_FILE" | tr -d '[:space:]')"
 WORKLOAD_CONFIGMAP="vacciguard-workload-$(printf '%s' "$RUN_ID" | tr '[:upper:]' '[:lower:]')"
+WORKLOAD_S3_URI="s3://${BUCKET_NAME}/${RUN_PREFIX}/workloads/${SCENARIO}.events.ndjson"
+WORKLOAD_SOURCE_KIND="configmap"
+WORKLOAD_RUNTIME_PATH="/data/workloads/evaluation/events.ndjson"
+FAULT_RESULT="not-configured"
 REPLAY_WAIT_TIMEOUT_SECONDS="$(python3 - "$WORKLOAD_EVENT_COUNT" "$WORKLOAD_TARGET_EPS" <<'PY'
 import math
 import sys
@@ -156,9 +177,15 @@ kubectl create configmap vacciguard-pipeline-config \
   --dry-run=client -o yaml | kubectl apply -f -
 
 kubectl delete configmap "$WORKLOAD_CONFIGMAP" -n "$NAMESPACE" --ignore-not-found >/dev/null
-kubectl create configmap "$WORKLOAD_CONFIGMAP" \
-  -n "$NAMESPACE" \
-  --from-file=events.ndjson="$WORKLOAD_FILE" >/dev/null
+if (( WORKLOAD_SIZE_BYTES <= MAX_WORKLOAD_CONFIGMAP_BYTES )); then
+  kubectl create configmap "$WORKLOAD_CONFIGMAP" \
+    -n "$NAMESPACE" \
+    --from-file=events.ndjson="$WORKLOAD_FILE" >/dev/null
+else
+  WORKLOAD_SOURCE_KIND="s3"
+  WORKLOAD_RUNTIME_PATH="$WORKLOAD_S3_URI"
+  aws s3 cp "$WORKLOAD_FILE" "$WORKLOAD_S3_URI" >/dev/null
+fi
 
 echo "[5/9] Restarting stream processor"
 kubectl rollout restart "deployment/${STREAM_DEPLOYMENT}" -n "$NAMESPACE" >/dev/null
@@ -183,6 +210,23 @@ fi
 
 echo "[6/9] Launching replay job"
 kubectl delete job "$REPLAY_JOB_NAME" -n "$NAMESPACE" --ignore-not-found >/dev/null
+REPLAY_VOLUME_MOUNTS=""
+REPLAY_VOLUMES=""
+if [[ "$WORKLOAD_SOURCE_KIND" == "configmap" ]]; then
+  REPLAY_VOLUME_MOUNTS="$(cat <<EOF
+          volumeMounts:
+            - name: workload
+              mountPath: /data/workloads/evaluation
+EOF
+)"
+  REPLAY_VOLUMES="$(cat <<EOF
+      volumes:
+        - name: workload
+          configMap:
+            name: ${WORKLOAD_CONFIGMAP}
+EOF
+)"
+fi
 kubectl apply -f - <<EOF
 apiVersion: batch/v1
 kind: Job
@@ -205,21 +249,55 @@ spec:
             - name: KAFKA_TOPIC
               value: ${RUN_TOPIC}
             - name: WORKLOAD_FILE
-              value: /data/workloads/evaluation/events.ndjson
+              value: ${WORKLOAD_RUNTIME_PATH}
             - name: EVENTS_PER_SECOND
               value: "${WORKLOAD_TARGET_EPS}"
             - name: LOOP
               value: "false"
-          volumeMounts:
-            - name: workload
-              mountPath: /data/workloads/evaluation
-      volumes:
-        - name: workload
-          configMap:
-            name: ${WORKLOAD_CONFIGMAP}
+${REPLAY_VOLUME_MOUNTS}
+${REPLAY_VOLUMES}
 EOF
 
+if [[ -n "$FAULT_MODEL_JSON" ]]; then
+  FAULT_TYPE="$(python3 - "$FAULT_MODEL_JSON" <<'PY'
+import json
+import sys
+
+payload = json.loads(sys.argv[1])
+print(payload.get("type", ""))
+PY
+)"
+  if [[ "$FAULT_TYPE" == "stream-processor-restart" ]]; then
+    FAULT_DELAY_SECONDS="$(python3 - "$FAULT_MODEL_JSON" <<'PY'
+import json
+import sys
+
+payload = json.loads(sys.argv[1])
+offset_minutes = payload.get("offset_minutes", 0)
+print(int(float(offset_minutes) * 60))
+PY
+)"
+    (
+      sleep "$FAULT_DELAY_SECONDS"
+      kubectl rollout restart "deployment/${STREAM_DEPLOYMENT}" -n "$NAMESPACE" >/dev/null
+      kubectl rollout status "deployment/${STREAM_DEPLOYMENT}" -n "$NAMESPACE" --timeout=180s >/dev/null
+    ) >/tmp/vacciguard-fault-${RUN_ID}.log 2>&1 &
+    FAULT_PID=$!
+    FAULT_RESULT="scheduled:${FAULT_TYPE}:delay=${FAULT_DELAY_SECONDS}s:pid=${FAULT_PID}"
+  else
+    FAULT_RESULT="unsupported:${FAULT_TYPE}"
+  fi
+fi
+
 kubectl wait --for=condition=complete --timeout="${REPLAY_WAIT_TIMEOUT_SECONDS}s" "job/${REPLAY_JOB_NAME}" -n "$NAMESPACE" >/dev/null
+
+if [[ -n "${FAULT_PID:-}" ]]; then
+  if wait "$FAULT_PID"; then
+    FAULT_RESULT="completed:${FAULT_TYPE}:delay=${FAULT_DELAY_SECONDS}s"
+  else
+    FAULT_RESULT="failed:${FAULT_TYPE}:delay=${FAULT_DELAY_SECONDS}s"
+  fi
+fi
 
 echo "[7/9] Collecting run evidence"
 sleep 15
@@ -291,8 +369,11 @@ cat >"$REPORT_PATH" <<EOF
 - Scenario: \`${SCENARIO}\`
 - Workload family version: \`${WORKLOAD_FAMILY_VERSION}\`
 - Workload file: \`${WORKLOAD_FILE}\`
+- Workload source: \`${WORKLOAD_SOURCE_KIND}\`
+- Workload size bytes: \`${WORKLOAD_SIZE_BYTES}\`
 - Declared input events: \`${WORKLOAD_EVENT_COUNT}\`
 - Configured replay rate: \`${WORKLOAD_TARGET_EPS}\`
+- Fault model: \`${FAULT_MODEL_JSON:-none}\`
 - Kafka topic: \`${RUN_TOPIC}\`
 - S3 prefix: \`s3://${BUCKET_NAME}/${RUN_PREFIX}/\`
 - Redis reset: \`${RESET_REDIS_STATE}\`
@@ -302,6 +383,12 @@ cat >"$REPORT_PATH" <<EOF
 
 \`\`\`text
 ${REDIS_RESET_RESULT}
+\`\`\`
+
+## Fault Injection
+
+\`\`\`text
+${FAULT_RESULT}
 \`\`\`
 
 ## Evaluation Summary

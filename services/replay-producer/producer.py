@@ -18,10 +18,14 @@ import logging
 import os
 import time
 import json
+import tempfile
 import threading
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
+from urllib.parse import urlparse
 
+import boto3
 from kafka import KafkaProducer
 from kafka.errors import NoBrokersAvailable
 
@@ -191,6 +195,23 @@ def load_events(path):
     return events
 
 
+def resolve_workload_file(path_or_uri, temp_dir=None):
+    if not path_or_uri.startswith("s3://"):
+        return path_or_uri
+
+    parsed = urlparse(path_or_uri)
+    bucket = parsed.netloc
+    key = parsed.path.lstrip("/")
+    local_dir = temp_dir or tempfile.mkdtemp(prefix="vacciguard-workload-")
+    local_path = Path(local_dir) / Path(key).name
+    local_path.parent.mkdir(parents=True, exist_ok=True)
+
+    log.info("Downloading workload from s3://%s/%s", bucket, key)
+    with local_path.open("wb") as handle:
+        boto3.client("s3").download_fileobj(bucket, key, handle)
+    return str(local_path)
+
+
 def encode_event_payload(event, sent_at=None):
     stamped_event = dict(event)
     replay_sent_at = sent_at or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -272,7 +293,8 @@ def main():
     replay_started = False
 
     try:
-        events = load_events(WORKLOAD_FILE)
+        resolved_workload_file = resolve_workload_file(WORKLOAD_FILE)
+        events = load_events(resolved_workload_file)
         REPLAY_METRICS_REGISTRY.record_loaded_events(len(events))
         log.info("Loaded %d events", len(events))
 

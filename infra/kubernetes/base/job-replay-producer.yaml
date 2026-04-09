@@ -9,7 +9,7 @@ spec:
       restartPolicy: Never
       containers:
         - name: replay-producer
-          image: 347038623570.dkr.ecr.ap-south-1.amazonaws.com/vacciguard-replay-producer:baseline
+          image: 347038623570.dkr.ecr.ap-south-1.amazonaws.com/vacciguard-replay-producer:baseline-monitoring-s3-20260409
           imagePullPolicy: Always
           ports:
             - name: metrics
