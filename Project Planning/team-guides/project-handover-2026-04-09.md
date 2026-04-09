@@ -575,7 +575,7 @@ Do not invent a different evaluation style for the optimized pipeline.
 
 Read these in this order:
 
-1. [project-handover-2026-04-09.md](/Users/tanishgupta/Downloads/vacciguard/.worktrees/tanish_pipeline/docs/project-handover-2026-04-09.md)
+1. [project-handover-2026-04-09.md](/Users/tanishgupta/Downloads/vacciguard/.worktrees/tanish_pipeline/Project%20Planning/team-guides/project-handover-2026-04-09.md)
 2. [aws-baseline-foundation.md](/Users/tanishgupta/Downloads/vacciguard/.worktrees/tanish_pipeline/docs/aws-baseline-foundation.md)
 3. [README.md](/Users/tanishgupta/Downloads/vacciguard/.worktrees/tanish_pipeline/data/workloads/evaluation/v1/README.md)
 4. [generate-evaluation-workloads.py](/Users/tanishgupta/Downloads/vacciguard/.worktrees/tanish_pipeline/scripts/generate-evaluation-workloads.py)
