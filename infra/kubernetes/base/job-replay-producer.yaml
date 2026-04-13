@@ -1,0 +1,36 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: replay-producer
+spec:
+  template:
+    spec:
+      serviceAccountName: vacciguard-pipeline
+      restartPolicy: Never
+      containers:
+        - name: replay-producer
+          image: 347038623570.dkr.ecr.ap-south-1.amazonaws.com/vacciguard-replay-producer:baseline-monitoring-s3-20260409
+          imagePullPolicy: Always
+          ports:
+            - name: metrics
+              containerPort: 9109
+          volumeMounts:
+            - name: workload-dev
+              mountPath: /data/workloads/dev
+          env:
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: kafka:9092
+            - name: KAFKA_TOPIC
+              value: vacciguard-telemetry
+            - name: WORKLOAD_FILE
+              value: /data/workloads/dev/events.ndjson
+            - name: EVENTS_PER_SECOND
+              value: "5"
+            - name: REPLAY_METRICS_DRAIN_SECONDS
+              value: "15"
+            - name: LOOP
+              value: "false"
+      volumes:
+        - name: workload-dev
+          configMap:
+            name: vacciguard-workload-dev

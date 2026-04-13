@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vacciguard-pipeline-config
+# Live baseline values copied from Terraform outputs for the current environment.
+# Refresh these entries if the Terraform outputs change.
+data:
+  PROCESSED_OUTPUT_PATH: s3a://vacciguard-baseline-data/processed
+  INVALID_OUTPUT_PATH: s3a://vacciguard-baseline-data/invalid
+  CHECKPOINT_ROOT: s3a://vacciguard-baseline-data/checkpoints
+  BREACH_WINDOW_OUTPUT_PATH: s3a://vacciguard-baseline-data/breach_windows
+  REDIS_HOST: vacciguard-baseline-redis.jhlect.0001.aps1.cache.amazonaws.com
+  KAFKA_TOPIC_PARTITIONS: "6"
+  SPARK_SQL_SHUFFLE_PARTITIONS: "6"
+  SPARK_DEFAULT_PARALLELISM: "6"

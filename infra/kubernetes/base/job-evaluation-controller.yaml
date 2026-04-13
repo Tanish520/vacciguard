@@ -1,0 +1,26 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: evaluation-controller
+spec:
+  suspend: true
+  backoffLimit: 0
+  template:
+    spec:
+      serviceAccountName: evaluation-controller
+      restartPolicy: Never
+      containers:
+        - name: evaluation-controller
+          image: 347038623570.dkr.ecr.ap-south-1.amazonaws.com/vacciguard-evaluation-controller:bootstrap-20260409
+          imagePullPolicy: Always
+          env:
+            - name: PIPELINE_TARGET
+              value: baseline
+            - name: SCENARIO
+              value: normal
+            - name: RUN_ID
+              value: run-001
+            - name: WORKLOAD_FAMILY_VERSION
+              value: evaluation-workload-v1
+            - name: S3_BUCKET_NAME
+              value: vacciguard-baseline-data
