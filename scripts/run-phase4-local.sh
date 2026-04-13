@@ -20,7 +20,7 @@ shutdown() {
 trap shutdown EXIT
 
 echo "[1/5] Generating workload"
-python3 scripts/generate-dev-workload.py
+python scripts/generate-dev-workload.py
 
 echo "[2/5] Cleaning prior local output"
 cleanup_output
@@ -32,7 +32,7 @@ echo "[4/5] Replaying workload"
 docker compose run --rm replay-producer
 
 echo "[5/5] Running smoke verification"
-python3 tests/smoke/verify_phase4.py
+python tests/smoke/verify_phase4.py
 
 echo "Inspect Redis:"
 docker compose exec -T redis redis-cli GET device:status:FR-0102

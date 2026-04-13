@@ -8,6 +8,8 @@ __pycache__/
 *.tfvars
 !*.tfvars.example
 tfplan
+artifacts/terraform-provider-aws_*.zip
+artifacts/tf-mirror/**/terraform-provider-*.zip
 artifacts/aws-baseline-evaluations/*.md
 data/workloads/dev/events.ndjson
 data/workloads/evaluation/v1/*.events.ndjson

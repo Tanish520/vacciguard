@@ -13,7 +13,7 @@ eval "$(aws configure export-credentials --format env)"
 
 TEMPLATE_JSON="$(kubectl create --dry-run=client -f infra/kubernetes/base/job-evaluation-controller.yaml -o json)"
 
-python3 - "$TEMPLATE_JSON" "$JOB_NAME" "$PIPELINE_TARGET" "$SCENARIO" "$RUN_ID" <<'PY' | kubectl apply -f - >/dev/null
+python - "$TEMPLATE_JSON" "$JOB_NAME" "$PIPELINE_TARGET" "$SCENARIO" "$RUN_ID" <<'PY' | kubectl apply -f - >/dev/null
 import json
 import os
 import sys

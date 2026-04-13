@@ -29,13 +29,13 @@ require_cmd() {
 
 require_cmd aws
 require_cmd kubectl
-require_cmd python3
+require_cmd python
 require_cmd rg
 
 json_value() {
   local json_input="$1"
   local key="$2"
-  python3 - "$json_input" "$key" <<'PY'
+  python - "$json_input" "$key" <<'PY'
 import json
 import sys
 
@@ -48,7 +48,7 @@ PY
 json_file_value() {
   local file_path="$1"
   local key="$2"
-  python3 - "$file_path" "$key" <<'PY'
+  python - "$file_path" "$key" <<'PY'
 import json
 import sys
 
@@ -61,7 +61,7 @@ PY
 json_file_optional_json() {
   local file_path="$1"
   local key="$2"
-  python3 - "$file_path" "$key" <<'PY'
+  python - "$file_path" "$key" <<'PY'
 import json
 import sys
 
@@ -126,7 +126,7 @@ WORKLOAD_S3_URI="s3://${BUCKET_NAME}/${RUN_PREFIX}/workloads/${SCENARIO}.events.
 WORKLOAD_SOURCE_KIND="configmap"
 WORKLOAD_RUNTIME_PATH="/data/workloads/evaluation/events.ndjson"
 FAULT_RESULT="not-configured"
-REPLAY_WAIT_TIMEOUT_SECONDS="$(python3 - "$WORKLOAD_EVENT_COUNT" "$WORKLOAD_TARGET_EPS" <<'PY'
+REPLAY_WAIT_TIMEOUT_SECONDS="$(python - "$WORKLOAD_EVENT_COUNT" "$WORKLOAD_TARGET_EPS" <<'PY'
 import math
 import sys
 
@@ -259,7 +259,7 @@ ${REPLAY_VOLUMES}
 EOF
 
 if [[ -n "$FAULT_MODEL_JSON" ]]; then
-  FAULT_TYPE="$(python3 - "$FAULT_MODEL_JSON" <<'PY'
+  FAULT_TYPE="$(python - "$FAULT_MODEL_JSON" <<'PY'
 import json
 import sys
 
@@ -268,7 +268,7 @@ print(payload.get("type", ""))
 PY
 )"
   if [[ "$FAULT_TYPE" == "stream-processor-restart" ]]; then
-    FAULT_DELAY_SECONDS="$(python3 - "$FAULT_MODEL_JSON" <<'PY'
+    FAULT_DELAY_SECONDS="$(python - "$FAULT_MODEL_JSON" <<'PY'
 import json
 import sys
 
@@ -309,7 +309,7 @@ REPLAY_LOG_PATH="/tmp/vacciguard-replay-${RUN_ID}.log"
 STREAM_LOG_PATH="/tmp/vacciguard-stream-${RUN_ID}.log"
 printf '%s\n' "$REPLAY_LOGS" >"$REPLAY_LOG_PATH"
 printf '%s\n' "$STREAM_SUMMARY_LOGS" >"$STREAM_LOG_PATH"
-EVALUATION_METADATA_JSON="$(python3 - <<PY
+EVALUATION_METADATA_JSON="$(python - <<PY
 import json
 print(json.dumps({
     "workload_family_version": "${WORKLOAD_FAMILY_VERSION}",
@@ -318,7 +318,7 @@ print(json.dumps({
 }, sort_keys=True))
 PY
 )"
-EVALUATION_TABLE="$(python3 - "$REPLAY_LOG_PATH" "$STREAM_LOG_PATH" "$WORKLOAD_FAMILY_VERSION" "$SCENARIO" "$WORKLOAD_TARGET_EPS" <<'PY'
+EVALUATION_TABLE="$(python - "$REPLAY_LOG_PATH" "$STREAM_LOG_PATH" "$WORKLOAD_FAMILY_VERSION" "$SCENARIO" "$WORKLOAD_TARGET_EPS" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -337,7 +337,7 @@ base.update(metadata)
 print(aws_baseline_metrics.render_markdown_table(base))
 PY
 )"
-EVALUATION_METRICS_JSON="$(python3 - "$REPLAY_LOG_PATH" "$STREAM_LOG_PATH" "$WORKLOAD_FAMILY_VERSION" "$SCENARIO" "$WORKLOAD_TARGET_EPS" <<'PY'
+EVALUATION_METRICS_JSON="$(python - "$REPLAY_LOG_PATH" "$STREAM_LOG_PATH" "$WORKLOAD_FAMILY_VERSION" "$SCENARIO" "$WORKLOAD_TARGET_EPS" <<'PY'
 import json
 import sys
 from pathlib import Path
