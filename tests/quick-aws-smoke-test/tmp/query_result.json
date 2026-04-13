@@ -1,0 +1,1 @@
+{"status":"success","data":{"resultType":"vector","result":[{"metric":{"__name__":"vacciguard_stream_processed_events_total","instance":"172.31.21.210:9108","job":"stream-processor-metrics","pod":"stream-processor-6547dd495f-5zk8s"},"value":[1776041467.910,"64030"]}]}}

@@ -1,0 +1,20 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stream-processor
+  namespace: vacciguard
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  template:
+    spec:
+      containers:
+        - name: stream-processor
+          resources:
+            requests:
+              cpu: "1250m"
+              memory: "2304Mi"
+            limits:
+              cpu: "1750m"
+              memory: "3584Mi"

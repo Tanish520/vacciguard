@@ -1,0 +1,14 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: evaluation-controller
+spec:
+  template:
+    spec:
+      serviceAccountName: vacciguard-pipeline
+      containers:
+        - name: evaluation-controller
+          image: 347038623570.dkr.ecr.ap-south-1.amazonaws.com/vacciguard-aayush-baseline-evaluation-controller:bootstrap-20260413
+          env:
+            - name: S3_BUCKET_NAME
+              value: vacciguard-aayush-baseline-data-347038623570

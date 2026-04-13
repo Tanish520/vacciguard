@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stream-processor
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: stream-processor
+  template:
+    metadata:
+      labels:
+        app: stream-processor
+    spec:
+      serviceAccountName: vacciguard-pipeline
+      containers:
+        - name: stream-processor
+          image: 347038623570.dkr.ecr.ap-south-1.amazonaws.com/vacciguard-stream-processor:baseline-monitoring-20260409
+          imagePullPolicy: Always
+          ports:
+            - name: metrics
+              containerPort: 9108
+          volumeMounts:
+            - name: lookup-data
+              mountPath: /data/reference
+          envFrom:
+            - configMapRef:
+                name: vacciguard-pipeline-config
+      volumes:
+        - name: lookup-data
+          configMap:
+            name: vacciguard-lookup-data

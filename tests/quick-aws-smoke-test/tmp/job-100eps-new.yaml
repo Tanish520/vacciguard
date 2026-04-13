@@ -1,0 +1,39 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: test-replay-100eps
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        job_name: replay-producer
+    spec:
+      serviceAccountName: vacciguard-pipeline
+      restartPolicy: Never
+      containers:
+        - name: replay-producer
+          image: 347038623570.dkr.ecr.ap-south-1.amazonaws.com/vacciguard-aayush-baseline-replay-producer:telemetry-fixed-20260413
+          imagePullPolicy: Always
+          ports:
+            - name: metrics
+              containerPort: 9109
+          env:
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: "kafka:9092"
+            - name: KAFKA_TOPIC
+              value: "vacciguard-telemetry"
+            - name: WORKLOAD_FILE
+              value: "/data/events.ndjson"
+            - name: EVENTS_PER_SECOND
+              value: "100"
+            - name: LOOP
+              value: "false"
+          volumeMounts:
+            - name: workload
+              mountPath: /data
+              readOnly: true
+      volumes:
+        - name: workload
+          configMap:
+            name: test-workload-100eps

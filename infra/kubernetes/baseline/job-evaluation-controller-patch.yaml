@@ -1,0 +1,13 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: evaluation-controller
+spec:
+  template:
+    spec:
+      containers:
+        - name: evaluation-controller
+          image: 347038623570.dkr.ecr.ap-south-1.amazonaws.com/vacciguard-tanish-baseline-evaluation-controller:dev-local
+          env:
+            - name: S3_BUCKET_NAME
+              value: vacciguard-tanish-baseline-ap-south-1-data

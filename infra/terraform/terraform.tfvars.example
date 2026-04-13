@@ -1,0 +1,20 @@
+project_name              = "vacciguard"
+environment_name          = "baseline"
+aws_region                = "ap-south-1"
+# Example values for the current default VPC in ap-south-1. They are not portable generic values.
+eks_cluster_name_override = ""
+s3_bucket_name_override   = ""
+redis_subnet_group_name   = "vacciguard-baseline-redis-subnets"
+redis_vpc_id              = "vpc-0edff0449c4cff998"
+# The first baseline pass intentionally reuses the same default subnets for Redis and EKS.
+redis_subnet_ids          = [
+  "subnet-0d5bb5a7096b51927",
+  "subnet-0096327117649f0d2",
+  "subnet-09b6f616b606abd4d",
+]
+eks_subnet_ids            = [
+  "subnet-0d5bb5a7096b51927",
+  "subnet-0096327117649f0d2",
+  "subnet-09b6f616b606abd4d",
+]
+redis_node_type           = "cache.t4g.micro"

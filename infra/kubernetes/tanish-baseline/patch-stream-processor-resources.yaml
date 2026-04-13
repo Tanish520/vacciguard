@@ -1,0 +1,18 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stream-processor
+spec:
+  strategy:
+    type: Recreate
+  template:
+    spec:
+      containers:
+        - name: stream-processor
+          resources:
+            requests:
+              cpu: 1250m
+              memory: 2304Mi
+            limits:
+              cpu: 1750m
+              memory: 3584Mi

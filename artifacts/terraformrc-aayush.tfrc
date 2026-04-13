@@ -1,0 +1,10 @@
+provider_installation {
+  filesystem_mirror {
+    path    = "D:/vacciguard-tanish_pipeline/artifacts/tf-mirror"
+    include = ["registry.terraform.io/hashicorp/aws", "registry.terraform.io/hashicorp/tls"]
+  }
+
+  direct {
+    exclude = ["registry.terraform.io/hashicorp/aws", "registry.terraform.io/hashicorp/tls"]
+  }
+}

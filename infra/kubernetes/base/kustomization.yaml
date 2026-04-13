@@ -1,0 +1,17 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: vacciguard
+resources:
+  - namespace.yaml
+  - serviceaccount-pipeline.yaml
+  - serviceaccount-evaluation-controller.yaml
+  - configmap-pipeline.yaml
+  - configmap-lookup.yaml
+  - configmap-workload-dev.yaml
+  - role-evaluation-controller.yaml
+  - rolebinding-evaluation-controller.yaml
+  - service-kafka.yaml
+  - statefulset-kafka.yaml
+  - deployment-stream-processor.yaml
+  - job-replay-producer.yaml
+  - job-evaluation-controller.yaml

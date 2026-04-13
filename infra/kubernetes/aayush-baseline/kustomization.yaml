@@ -1,0 +1,13 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../base
+patches:
+  - path: configmap-pipeline.yaml
+  - path: serviceaccount-pipeline-patch.yaml
+  - path: job-evaluation-controller-patch.yaml
+  - path: rolebinding-evaluation-controller-patch.yaml
+  - path: deployment-stream-processor-image-patch.yaml
+  - path: job-replay-producer-image-patch.yaml
+  - path: patch-kafka-resources.yaml
+  - path: patch-stream-processor-resources.yaml
