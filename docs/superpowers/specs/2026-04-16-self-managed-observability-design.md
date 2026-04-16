@@ -78,6 +78,10 @@ The comparison dashboard keeps the same panels:
 - breach events
 - consumer lag
 
+Every panel must show real data during normal AWS runs, not just a configured
+empty chart. The dashboard is only considered complete when the baseline and
+optimized series both populate with live values for the same run window.
+
 ### AWS Logs and Infrastructure Visibility
 
 CloudWatch remains the AWS-native place for:
@@ -128,5 +132,6 @@ python3 -m unittest tests.evaluation.test_aws_native_evaluation_controller -v
 - A user can run the AWS baseline and optimized evaluations.
 - The dashboard can be opened without AWS Managed Grafana.
 - Baseline and optimized series appear together on the same Grafana panels.
+- All comparison panels show live metric data during a normal run.
 - CloudWatch remains available as the AWS-native logging layer.
 - The repo no longer depends on AWS Managed Grafana being available in the region.
