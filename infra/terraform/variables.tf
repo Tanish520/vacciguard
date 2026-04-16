@@ -16,6 +16,12 @@ variable "aws_region" {
   default     = "ap-south-1"
 }
 
+variable "grafana_region" {
+  description = "AWS region for Amazon Managed Grafana. Must be a supported AMG region."
+  type        = string
+  default     = "ap-southeast-1"
+}
+
 variable "eks_cluster_name_override" {
   description = "Optional explicit EKS cluster name."
   type        = string

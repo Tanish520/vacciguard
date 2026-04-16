@@ -15,11 +15,16 @@ class AwsManagedObservabilityManifestTests(unittest.TestCase):
     def test_readmes_mentions_managed_stack(self):
         monitoring_readme = (ROOT / "infra/monitoring/aws-managed/README.md").read_text(encoding="utf-8")
         grafana_readme = (ROOT / "infra/monitoring/aws-managed/grafana/README.md").read_text(encoding="utf-8")
+        terraform_readme = (ROOT / "infra/terraform/README.md").read_text(encoding="utf-8")
 
         for raw in (monitoring_readme, grafana_readme):
             self.assertIn("AMP", raw)
             self.assertIn("CloudWatch", raw)
         self.assertIn("Amazon Managed Grafana", monitoring_readme)
+        self.assertIn("ap-southeast-1", monitoring_readme)
+        self.assertIn("ap-southeast-1", grafana_readme)
+        self.assertIn("ap-southeast-1", terraform_readme)
+        self.assertIn("IAM Identity Center", terraform_readme)
 
     def test_collector_namespace_and_irsa_are_fixed(self):
         namespace_raw = (ROOT / "infra/kubernetes/aws-observability/namespace.yaml").read_text(encoding="utf-8")

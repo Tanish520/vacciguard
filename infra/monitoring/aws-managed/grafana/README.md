@@ -17,3 +17,7 @@ same chart.
 
 The dashboard should focus on the same metrics produced by the stream processor
 and replay producer so baseline and optimized runs can be compared on one page.
+
+Open the Grafana workspace in `ap-southeast-1`. AWS Managed Grafana is not
+available in the Mumbai region, so the console must be switched to Singapore
+before you can view or edit the VacciGuard dashboard.
