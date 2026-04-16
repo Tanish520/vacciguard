@@ -80,6 +80,11 @@ with:
 - `report.md`
 - `report.json`
 
+The AWS-managed Grafana workspace is provisioned in `ap-southeast-1`, while the
+EKS cluster and AMP workspace remain in `ap-south-1`. If the Grafana console
+shows a region warning in Mumbai, switch the AWS console region to Singapore to
+open the VacciGuard comparison dashboard.
+
 ## Validate The Scaffold
 
 ```bash

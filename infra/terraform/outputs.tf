@@ -26,6 +26,10 @@ output "observability_mode" {
   value = var.observability_mode
 }
 
+output "grafana_region" {
+  value = var.grafana_region
+}
+
 output "amp_workspace_arn" {
   value = aws_prometheus_workspace.observability.arn
 }

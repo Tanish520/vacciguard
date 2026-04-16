@@ -1,6 +1,7 @@
 project_name              = "vacciguard"
 environment_name          = "baseline"
 aws_region                = "ap-south-1"
+grafana_region             = "ap-southeast-1"
 # Example values for the current default VPC in ap-south-1. They are not portable generic values.
 eks_cluster_name_override = ""
 s3_bucket_name_override   = ""

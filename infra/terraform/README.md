@@ -28,10 +28,15 @@ Amazon Managed Grafana requires IAM Identity Center to be enabled in the AWS
 account. If the account does not have Identity Center configured yet, enable
 it before running `terraform apply`.
 
+Amazon Managed Grafana is provisioned in `ap-southeast-1` by default because
+`ap-south-1` does not support AMG. The EKS cluster, AMP workspace, and CloudWatch
+resources stay in `ap-south-1`; only Grafana moves to the supported region.
+
 The observability outputs include:
 
 - AMP workspace ARN and query endpoint
 - Grafana workspace ID and URL
+- Grafana workspace region
 - CloudWatch log group names for the stream processor, replay producer, and
   evaluation controller
 
@@ -47,6 +52,11 @@ workload setup:
 aws eks update-kubeconfig --region ap-south-1 --name "$(terraform -chdir=infra/terraform output -raw eks_cluster_name)"
 kubectl get nodes
 ```
+
+To open the managed Grafana workspace, switch the AWS console region to
+`ap-southeast-1` and use the `grafana_workspace_endpoint` output or the
+workspace name shown by Terraform. The dashboard still reads from the Mumbai
+AMP workspace, but Grafana itself lives in the supported Singapore region.
 
 ## Validation
 

@@ -58,6 +58,7 @@ resource "aws_iam_role_policy" "grafana_access" {
 }
 
 resource "aws_grafana_workspace" "managed" {
+  provider                 = aws.grafana
   name                     = local.grafana_workspace_name
   account_access_type      = "CURRENT_ACCOUNT"
   authentication_providers = ["AWS_SSO"]
@@ -65,6 +66,10 @@ resource "aws_grafana_workspace" "managed" {
   role_arn                 = aws_iam_role.grafana_service.arn
   data_sources             = ["CLOUDWATCH", "PROMETHEUS"]
   description              = "VacciGuard AWS-managed dashboard workspace"
+
+  lifecycle {
+    create_before_destroy = true
+  }
 
   tags = local.common_tags
 }
