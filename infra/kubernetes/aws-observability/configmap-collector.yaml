@@ -5,7 +5,7 @@ metadata:
   namespace: observability
 data:
   AWS_REGION: ap-south-1
-  AMP_REMOTE_WRITE_ENDPOINT: https://aps-workspaces.ap-south-1.amazonaws.com/workspaces/REPLACE_ME/api/v1/remote_write
+  AMP_REMOTE_WRITE_ENDPOINT: https://aps-workspaces.ap-south-1.amazonaws.com/workspaces/ws-b8fd841a-5ad0-4610-be10-cd7d33e9f10e/api/v1/remote_write
   config.yaml: |
     receivers:
       prometheus:
@@ -63,7 +63,7 @@ data:
         send_batch_size: 1024
 
     exporters:
-      awsprometheusremotewrite:
+      prometheusremotewrite:
         endpoint: ${env:AMP_REMOTE_WRITE_ENDPOINT}
         auth:
           authenticator: sigv4auth
@@ -72,6 +72,7 @@ data:
       health_check:
         endpoint: 0.0.0.0:13133
       sigv4auth:
+        service: aps
         region: ${env:AWS_REGION}
 
     service:
@@ -80,4 +81,4 @@ data:
         metrics:
           receivers: [prometheus]
           processors: [batch]
-          exporters: [awsprometheusremotewrite]
+          exporters: [prometheusremotewrite]
