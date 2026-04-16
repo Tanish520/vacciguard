@@ -8,6 +8,7 @@ PIPELINE_TARGET="${1:-baseline}"
 SCENARIO="${2:-normal}"
 RUN_ID="${3:-$(date -u +%Y%m%dT%H%M%SZ)}"
 JOB_NAME="evaluation-controller-$(printf '%s' "$RUN_ID" | tr '[:upper:]' '[:lower:]')"
+POD_RUNNING_TIMEOUT="${POD_RUNNING_TIMEOUT:-5m}"
 
 eval "$(aws configure export-credentials --format env)"
 
@@ -37,6 +38,23 @@ for item in template["spec"]["template"]["spec"]["containers"][0]["env"]:
         item["value"] = run_id
 
 env = template["spec"]["template"]["spec"]["containers"][0]["env"]
+optional_env_names = (
+    "S3_BUCKET_NAME",
+    "WORKLOAD_FAMILY_VERSION",
+    "WORKLOAD_DURATION_MINUTES",
+)
+
+for name in optional_env_names:
+    value = os.environ.get(name)
+    if not value:
+        continue
+    for item in env:
+        if item["name"] == name:
+            item["value"] = value
+            break
+    else:
+        env.append({"name": name, "value": value})
+
 for name in ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"):
     value = os.environ.get(name)
     if value:
@@ -45,4 +63,11 @@ for name in ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"):
 print(json.dumps(template))
 PY
 
-kubectl logs "job/${JOB_NAME}" -n vacciguard -f
+kubectl wait \
+  --for=condition=Ready \
+  "pod" \
+  -l "job-name=${JOB_NAME}" \
+  -n vacciguard \
+  --timeout="$POD_RUNNING_TIMEOUT" >/dev/null || true
+
+kubectl logs "job/${JOB_NAME}" -n vacciguard -f --pod-running-timeout="$POD_RUNNING_TIMEOUT"

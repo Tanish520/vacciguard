@@ -113,9 +113,18 @@ def build_report_payload(
 
 
 def extract_metrics_from_logs(
-    replay_logs: str, stream_logs: str, metadata: dict[str, object]
+    replay_logs: str,
+    stream_logs: str,
+    stream_metrics_payload: str,
+    artifact_summary: dict[str, object],
+    metadata: dict[str, object],
 ) -> dict[str, object]:
-    metrics = aws_baseline_metrics.extract_metrics(replay_logs, stream_logs)
+    metrics = aws_baseline_metrics.extract_metrics(
+        replay_logs,
+        stream_logs,
+        stream_metrics_payload=stream_metrics_payload,
+    )
+    metrics.update(artifact_summary)
     metrics.update(metadata)
     return metrics
 
@@ -185,9 +194,57 @@ def build_replay_job_manifest(
     contract: RunContract,
     replay_image: str,
     kafka_bootstrap_servers: str,
-    workload_configmap_name: str,
+    workload_configmap_name: str | None,
+    workload_runtime_path: str = "/data/workloads/evaluation/events.ndjson",
     target_eps: float,
 ) -> dict[str, object]:
+    container_spec = {
+        "name": REPLAY_JOB_BASE_NAME,
+        "image": replay_image,
+        "imagePullPolicy": "Always",
+        "ports": [
+            {
+                "name": "metrics",
+                "containerPort": REPLAY_JOB_METRICS_PORT,
+            }
+        ],
+        "env": [
+            {
+                "name": "KAFKA_BOOTSTRAP_SERVERS",
+                "value": kafka_bootstrap_servers,
+            },
+            {"name": "KAFKA_TOPIC", "value": contract.kafka_topic},
+            {
+                "name": "WORKLOAD_FILE",
+                "value": workload_runtime_path,
+            },
+            {
+                "name": "EVENTS_PER_SECOND",
+                "value": str(target_eps),
+            },
+            {"name": "LOOP", "value": "false"},
+        ],
+    }
+
+    template_spec: dict[str, object] = {
+        "serviceAccountName": "vacciguard-pipeline",
+        "restartPolicy": "Never",
+        "containers": [container_spec],
+    }
+    if workload_configmap_name:
+        container_spec["volumeMounts"] = [
+            {
+                "name": "workload",
+                "mountPath": "/data/workloads/evaluation",
+            }
+        ]
+        template_spec["volumes"] = [
+            {
+                "name": "workload",
+                "configMap": {"name": workload_configmap_name},
+            }
+        ]
+
     return {
         "apiVersion": "batch/v1",
         "kind": "Job",
@@ -205,64 +262,34 @@ def build_replay_job_manifest(
                         "run_id": contract.run_id,
                     }
                 },
-                "spec": {
-                    "serviceAccountName": "vacciguard-pipeline",
-                    "restartPolicy": "Never",
-                    "containers": [
-                        {
-                            "name": REPLAY_JOB_BASE_NAME,
-                            "image": replay_image,
-                            "imagePullPolicy": "Always",
-                            "ports": [
-                                {
-                                    "name": "metrics",
-                                    "containerPort": REPLAY_JOB_METRICS_PORT,
-                                }
-                            ],
-                            "env": [
-                                {
-                                    "name": "KAFKA_BOOTSTRAP_SERVERS",
-                                    "value": kafka_bootstrap_servers,
-                                },
-                                {"name": "KAFKA_TOPIC", "value": contract.kafka_topic},
-                                {
-                                    "name": "WORKLOAD_FILE",
-                                    "value": "/data/workloads/evaluation/events.ndjson",
-                                },
-                                {
-                                    "name": "EVENTS_PER_SECOND",
-                                    "value": str(target_eps),
-                                },
-                                {"name": "LOOP", "value": "false"},
-                            ],
-                            "volumeMounts": [
-                                {
-                                    "name": "workload",
-                                    "mountPath": "/data/workloads/evaluation",
-                                }
-                            ],
-                        }
-                    ],
-                    "volumes": [
-                        {
-                            "name": "workload",
-                            "configMap": {"name": workload_configmap_name},
-                        }
-                    ],
-                }
+                "spec": template_spec,
             },
         },
     }
 
 
 def render_markdown_report(report_payload: dict[str, object]) -> str:
-    return "\n".join(
-        [
-            f"# Evaluation Report: {report_payload['run_id']}",
-            "",
-            f"- pipeline target: {report_payload['pipeline_target']}",
-            f"- scenario: {report_payload['scenario']}",
-            f"- status: {report_payload['status']}",
-            f"- processed events: {report_payload.get('processed_events', 'n/a')}",
-        ]
-    ) + "\n"
+    lines = [
+        f"# Evaluation Report: {report_payload['run_id']}",
+        "",
+        "## Summary",
+        f"- pipeline target: {report_payload['pipeline_target']}",
+        f"- scenario: {report_payload['scenario']}",
+        f"- status: {report_payload['status']}",
+        f"- workload family version: {report_payload['workload_family_version']}",
+        f"- report markdown: {report_payload['report_markdown_s3_uri']}",
+        f"- report json: {report_payload['report_json_s3_uri']}",
+        "",
+        "## Metrics",
+        aws_baseline_metrics.render_markdown_table(report_payload),
+    ]
+    failure_reason = report_payload.get("failure_reason")
+    if failure_reason:
+        lines.extend(
+            [
+                "",
+                "## Failure",
+                str(failure_reason),
+            ]
+        )
+    return "\n".join(lines) + "\n"

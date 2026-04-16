@@ -14,11 +14,21 @@ RUN_TOPIC="vacciguard-eval-${RUN_ID}"
 RESET_REDIS_STATE="${RESET_REDIS_STATE:-true}"
 WORKLOAD_FAMILY_VERSION="${WORKLOAD_FAMILY_VERSION:-evaluation-workload-v1}"
 WORKLOAD_BASE_DIR="${WORKLOAD_BASE_DIR:-$ROOT_DIR/data/workloads/evaluation/v1}"
-WORKLOAD_FILE="${WORKLOAD_BASE_DIR}/${SCENARIO}.events.ndjson"
+SOURCE_WORKLOAD_FILE="${WORKLOAD_BASE_DIR}/${SCENARIO}.events.ndjson"
+WORKLOAD_FILE="$SOURCE_WORKLOAD_FILE"
 WORKLOAD_MANIFEST="${WORKLOAD_BASE_DIR}/${SCENARIO}.manifest.json"
 MAX_WORKLOAD_CONFIGMAP_BYTES="${MAX_WORKLOAD_CONFIGMAP_BYTES:-921600}"
+WORKLOAD_TEMP_DIR=""
 
 mkdir -p "$REPORT_DIR"
+
+cleanup() {
+  if [[ -n "$WORKLOAD_TEMP_DIR" && -d "$WORKLOAD_TEMP_DIR" ]]; then
+    rm -rf "$WORKLOAD_TEMP_DIR"
+  fi
+}
+
+trap cleanup EXIT
 
 require_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -81,16 +91,32 @@ latest_stream_pod() {
   kubectl get pods -n "$NAMESPACE" -l app=stream-processor --sort-by=.metadata.creationTimestamp -o name | tail -n 1 | cut -d/ -f2
 }
 
-echo "[1/9] Confirming AWS account and cluster access"
+wait_for_stream_pod_ready() {
+  local pod_name=""
+  for _ in $(seq 1 36); do
+    pod_name="$(kubectl get pods -n "$NAMESPACE" -l app=stream-processor --field-selector=status.phase=Running --sort-by=.metadata.creationTimestamp -o name | tail -n 1 | cut -d/ -f2)"
+    if [[ -n "$pod_name" ]] && kubectl wait --for=condition=Ready "pod/${pod_name}" -n "$NAMESPACE" --timeout=5s >/dev/null 2>&1; then
+      printf '%s\n' "$pod_name"
+      return 0
+    fi
+    sleep 5
+  done
+  return 1
+}
+
+echo "[1/10] Confirming AWS account and cluster access"
 AWS_IDENTITY="$(aws sts get-caller-identity)"
 ACCOUNT_ID="$(json_value "$AWS_IDENTITY" Account)"
 AWS_REGION="${AWS_REGION:-ap-south-1}"
-CLUSTER_NAME="$(terraform -chdir=infra/terraform output -raw eks_cluster_name)"
+CLUSTER_NAME="${CLUSTER_NAME:-$(terraform -chdir=infra/terraform output -raw eks_cluster_name 2>/dev/null || true)}"
+if [[ -z "$CLUSTER_NAME" || "${#CLUSTER_NAME}" -gt 100 ]]; then
+  CLUSTER_NAME="${DEFAULT_EKS_CLUSTER_NAME:-vacciguard-tanish-baseline-eks}"
+fi
 aws eks update-kubeconfig --region "$AWS_REGION" --name "$CLUSTER_NAME" >/dev/null
 kubectl get nodes >/dev/null
 
-if [[ ! -f "$WORKLOAD_FILE" ]]; then
-  echo "Missing workload file: $WORKLOAD_FILE" >&2
+if [[ ! -f "$SOURCE_WORKLOAD_FILE" ]]; then
+  echo "Missing workload file: $SOURCE_WORKLOAD_FILE" >&2
   exit 1
 fi
 if [[ ! -f "$WORKLOAD_MANIFEST" ]]; then
@@ -98,7 +124,14 @@ if [[ ! -f "$WORKLOAD_MANIFEST" ]]; then
   exit 1
 fi
 
-echo "[2/9] Reading current baseline config"
+echo "[2/10] Preparing run-scoped workload copy"
+WORKLOAD_TEMP_DIR="$(mktemp -d "/tmp/vacciguard-workload-${RUN_ID}.XXXXXX")"
+WORKLOAD_FILE="${WORKLOAD_TEMP_DIR}/${SCENARIO}.events.ndjson"
+python3 scripts/shift_workload_timestamps.py \
+  --input "$SOURCE_WORKLOAD_FILE" \
+  --output "$WORKLOAD_FILE"
+
+echo "[3/10] Reading current baseline config"
 APP_NAME="$(cm_value APP_NAME)"
 KAFKA_BOOTSTRAP_SERVERS="$(cm_value KAFKA_BOOTSTRAP_SERVERS)"
 KAFKA_TOPIC_PARTITIONS="$(cm_value KAFKA_TOPIC_PARTITIONS)"
@@ -137,10 +170,14 @@ print(max(180, math.ceil(estimated_seconds) + 180))
 PY
 )"
 
-echo "[3/9] Resetting Redis evaluation state"
+echo "[4/10] Resetting Redis evaluation state"
 REDIS_RESET_RESULT="skipped"
 if [[ "$RESET_REDIS_STATE" == "true" ]]; then
-  RESET_POD="$(latest_stream_pod)"
+  RESET_POD="$(wait_for_stream_pod_ready)"
+  if [[ -z "$RESET_POD" ]]; then
+    echo "Stream processor did not become ready before Redis reset" >&2
+    exit 1
+  fi
   kubectl exec "$RESET_POD" -n "$NAMESPACE" -- python -c "
 import redis
 
@@ -157,7 +194,7 @@ else
   REDIS_RESET_RESULT="RESET_REDIS_STATE=false"
 fi
 
-echo "[4/9] Patching live pipeline config for isolated run ${RUN_ID}"
+echo "[5/10] Patching live pipeline config for isolated run ${RUN_ID}"
 kubectl create configmap vacciguard-pipeline-config \
   -n "$NAMESPACE" \
   --from-literal=APP_NAME="$APP_NAME" \
@@ -187,7 +224,7 @@ else
   aws s3 cp "$WORKLOAD_FILE" "$WORKLOAD_S3_URI" >/dev/null
 fi
 
-echo "[5/9] Restarting stream processor"
+echo "[6/10] Restarting stream processor"
 kubectl rollout restart "deployment/${STREAM_DEPLOYMENT}" -n "$NAMESPACE" >/dev/null
 kubectl rollout status "deployment/${STREAM_DEPLOYMENT}" -n "$NAMESPACE" --timeout=180s >/dev/null
 
@@ -208,7 +245,7 @@ if [[ "$STREAM_READY" -ne 1 ]]; then
   exit 1
 fi
 
-echo "[6/9] Launching replay job"
+echo "[7/10] Launching replay job"
 kubectl delete job "$REPLAY_JOB_NAME" -n "$NAMESPACE" --ignore-not-found >/dev/null
 REPLAY_VOLUME_MOUNTS=""
 REPLAY_VOLUMES=""
@@ -299,7 +336,7 @@ if [[ -n "${FAULT_PID:-}" ]]; then
   fi
 fi
 
-echo "[7/9] Collecting run evidence"
+echo "[8/10] Collecting run evidence"
 sleep 15
 REPLAY_LOGS="$(kubectl logs "job/${REPLAY_JOB_NAME}" -n "$NAMESPACE" --tail=200)"
 STREAM_SUMMARY_LOGS="$(kubectl logs "deployment/${STREAM_DEPLOYMENT}" -n "$NAMESPACE" 2>&1 | rg "Batch .* summary|wrote .* latest device states|Stream processor is running with [0-9]+ active queries" || true)"
@@ -357,7 +394,7 @@ print(json.dumps(base, indent=2, sort_keys=True))
 PY
 )"
 
-echo "[8/9] Writing local report"
+echo "[9/10] Writing local report"
 cat >"$REPORT_PATH" <<EOF
 # AWS Baseline Evaluation ${RUN_ID}
 
@@ -368,6 +405,7 @@ cat >"$REPORT_PATH" <<EOF
 - Namespace: \`${NAMESPACE}\`
 - Scenario: \`${SCENARIO}\`
 - Workload family version: \`${WORKLOAD_FAMILY_VERSION}\`
+- Source workload file: \`${SOURCE_WORKLOAD_FILE}\`
 - Workload file: \`${WORKLOAD_FILE}\`
 - Workload source: \`${WORKLOAD_SOURCE_KIND}\`
 - Workload size bytes: \`${WORKLOAD_SIZE_BYTES}\`
@@ -426,7 +464,7 @@ ${POD_SUMMARY}
 \`\`\`
 EOF
 
-echo "[9/9] Evaluation complete"
+echo "[10/10] Evaluation complete"
 echo "Run ID: ${RUN_ID}"
 echo "Kafka topic: ${RUN_TOPIC}"
 echo "S3 prefix: s3://${BUCKET_NAME}/${RUN_PREFIX}/"
