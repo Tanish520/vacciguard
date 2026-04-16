@@ -1,3 +1,4 @@
+import functools
 import importlib.util
 from pathlib import Path
 import tempfile
@@ -181,6 +182,10 @@ class StreamMetricsRegistryTests(unittest.TestCase):
         self.assertIn("vacciguard_stream_breach_events_total 0", rendered)
         self.assertIn("vacciguard_stream_latest_batch_avg_latency_seconds 0.0", rendered)
         self.assertIn("vacciguard_stream_latest_batch_p95_latency_seconds 0.0", rendered)
+        self.assertIn("vacciguard_stream_latest_batch_event_time_lag_p95_seconds 0.0", rendered)
+        self.assertIn("vacciguard_stream_latest_batch_ingest_to_redis_p95_seconds 0.0", rendered)
+        self.assertIn("vacciguard_stream_watermark_delay_seconds 0.0", rendered)
+        self.assertIn("vacciguard_stream_consumer_lag_records 0", rendered)
 
     def test_update_batch_metrics_renders_latest_and_total_metrics(self):
         registry = stream_job.StreamMetricsRegistry()
@@ -193,6 +198,8 @@ class StreamMetricsRegistryTests(unittest.TestCase):
             breach_count=4,
             avg_latency_seconds=1.5,
             p95_latency_seconds=2.0,
+            event_time_lag_p95_seconds=9.25,
+            watermark_delay_seconds=601.0,
         )
         registry.update_batch_metrics(
             batch_id=4,
@@ -202,13 +209,106 @@ class StreamMetricsRegistryTests(unittest.TestCase):
             breach_count=0,
             avg_latency_seconds=0.75,
             p95_latency_seconds=1.25,
+            event_time_lag_p95_seconds=5.5,
+            watermark_delay_seconds=602.0,
         )
+        registry.update_consumer_lag(7)
+        registry.update_redis_metrics(ingest_to_redis_p95_seconds=3.25)
 
         rendered = registry.render_prometheus()
 
         self.assertIn("vacciguard_stream_latest_batch_id 4", rendered)
         self.assertIn("vacciguard_stream_processed_events_total 7", rendered)
         self.assertIn("vacciguard_stream_invalid_events_total 4", rendered)
+        self.assertIn("vacciguard_stream_latest_batch_event_time_lag_p95_seconds 5.5", rendered)
+        self.assertIn("vacciguard_stream_latest_batch_ingest_to_redis_p95_seconds 3.25", rendered)
+        self.assertIn("vacciguard_stream_watermark_delay_seconds 602.0", rendered)
+        self.assertIn("vacciguard_stream_consumer_lag_records 7", rendered)
+
+
+class QueryPlanningTests(unittest.TestCase):
+    def _make_query_builder(self):
+        builder = Mock()
+        builder.foreachBatch.return_value = builder
+        builder.outputMode.return_value = builder
+        builder.option.return_value = builder
+        builder.trigger.return_value = builder
+        builder.start.return_value = Mock(name="query")
+        return builder
+
+    def test_start_queries_uses_two_queries_in_baseline_mode(self):
+        processed_writer = self._make_query_builder()
+        classified_writer = self._make_query_builder()
+        processed_df = Mock(writeStream=processed_writer)
+        classified_df = Mock(writeStream=classified_writer)
+        lookup_df = Mock(name="lookup_df")
+
+        with patch.object(stream_job, "pipeline_mode", return_value="baseline"):
+            queries = stream_job.start_queries(processed_df, None, classified_df, lookup_df)
+
+        self.assertEqual(len(queries), 2)
+        processed_writer.foreachBatch.assert_called_once_with(stream_job.write_processed_batch)
+        classified_callback = classified_writer.foreachBatch.call_args.args[0]
+        self.assertIsInstance(classified_callback, functools.partial)
+        self.assertIs(classified_callback.func, stream_job.write_classified_batch)
+        self.assertIs(classified_callback.keywords["lookup_df"], lookup_df)
+
+    def test_start_queries_uses_single_query_in_optimized_mode(self):
+        classified_writer = self._make_query_builder()
+        processed_df = Mock(name="processed")
+        invalid_df = Mock(name="invalid")
+        classified_df = Mock(writeStream=classified_writer)
+        lookup_df = Mock(name="lookup_df")
+
+        with patch.object(stream_job, "pipeline_mode", return_value="optimized"):
+            queries = stream_job.start_queries(processed_df, invalid_df, classified_df, lookup_df)
+
+        self.assertEqual(len(queries), 1)
+        optimized_callback = classified_writer.foreachBatch.call_args.args[0]
+        self.assertIsInstance(optimized_callback, functools.partial)
+        self.assertIs(optimized_callback.func, stream_job.write_optimized_batch)
+        self.assertIs(optimized_callback.keywords["lookup_df"], lookup_df)
+
+    def test_record_batch_offsets_tracks_latest_partition_offsets(self):
+        batch_schema = T.StructType(
+            [
+                T.StructField("partition", T.IntegerType(), True),
+                T.StructField("offset", T.LongType(), True),
+            ]
+        )
+        spark = SparkSession.builder.getOrCreate()
+        batch_df = spark.createDataFrame(
+            [
+                {"partition": 0, "offset": 14},
+                {"partition": 0, "offset": 15},
+                {"partition": 1, "offset": 9},
+            ],
+            schema=batch_schema,
+        )
+
+        with patch.object(stream_job, "STREAM_METRICS_REGISTRY") as mock_registry:
+            stream_job.record_batch_offsets(batch_df)
+
+        mock_registry.update_last_seen_offsets.assert_called_once_with({0: 15, 1: 9})
+
+    def test_poll_consumer_lag_once_uses_recorded_offsets(self):
+        fake_consumer = Mock()
+        fake_consumer.end_offsets.return_value = {
+            ("vacciguard-telemetry", 0): 20,
+            ("vacciguard-telemetry", 1): 12,
+        }
+
+        with patch.object(stream_job, "STREAM_METRICS_REGISTRY") as mock_registry, patch.object(
+            stream_job,
+            "TopicPartition",
+            side_effect=lambda topic, partition: (topic, partition),
+        ):
+            mock_registry.get_last_seen_offsets.return_value = {0: 15, 1: 9}
+
+            lag = stream_job.poll_consumer_lag_once(fake_consumer)
+
+        self.assertEqual(lag, 6)
+        fake_consumer.end_offsets.assert_called_once()
 
 
 class MainLifecycleTests(unittest.TestCase):
@@ -235,6 +335,7 @@ class MainLifecycleTests(unittest.TestCase):
         metrics_server = Mock()
         metrics_server.server_address = ("0.0.0.0", 9108)
         spark = Mock()
+        start_queries = Mock(return_value=["query"])
 
         with patch.object(stream_job, "ensure_local_paths"), patch.object(
             stream_job, "ensure_kafka_topic"
@@ -243,9 +344,15 @@ class MainLifecycleTests(unittest.TestCase):
         ), patch.object(
             stream_job, "build_spark", return_value=spark
         ), patch.object(
-            stream_job, "build_stream", return_value=("processed", "invalid", "classified")
+            stream_job, "build_stream", return_value="classified"
         ), patch.object(
-            stream_job, "start_queries", return_value=["query"]
+            stream_job, "build_output_streams", return_value=("processed", "invalid")
+        ), patch.object(
+            stream_job, "pipeline_mode", return_value="baseline"
+        ), patch.object(
+            stream_job, "_start_consumer_lag_thread", return_value=Mock()
+        ), patch.object(
+            stream_job, "start_queries", start_queries
         ):
             stream_job.main()
 
@@ -253,6 +360,44 @@ class MainLifecycleTests(unittest.TestCase):
             stream_job.os.environ.get("SPARK_LOG_LEVEL", "WARN")
         )
         spark.streams.awaitAnyTermination.assert_called_once_with()
+        metrics_server.shutdown.assert_called_once_with()
+        metrics_server.server_close.assert_called_once_with()
+
+    def test_main_uses_single_query_in_optimized_mode(self):
+        metrics_server = Mock()
+        metrics_server.server_address = ("0.0.0.0", 9108)
+        spark = Mock()
+        lookup_df = Mock(name="lookup_df")
+        lookup_df.cache.return_value = lookup_df
+        lookup_df.count.return_value = 1
+        build_output_streams = Mock(return_value=("processed", "invalid"))
+        start_queries = Mock(return_value=["query"])
+
+        with patch.object(stream_job, "ensure_local_paths"), patch.object(
+            stream_job, "ensure_kafka_topic"
+        ), patch.object(
+            stream_job, "start_metrics_server", return_value=metrics_server
+        ), patch.object(
+            stream_job, "build_spark", return_value=spark
+        ), patch.object(
+            stream_job, "load_lookup", return_value=lookup_df
+        ), patch.object(
+            stream_job, "build_stream", return_value="classified"
+        ), patch.object(
+            stream_job, "pipeline_mode", return_value="optimized"
+        ), patch.object(
+            stream_job, "build_output_streams", build_output_streams
+        ), patch.object(
+            stream_job, "_start_consumer_lag_thread", return_value=Mock()
+        ), patch.object(
+            stream_job, "start_queries", start_queries
+        ):
+            stream_job.main()
+
+        build_output_streams.assert_not_called()
+        lookup_df.cache.assert_called_once_with()
+        lookup_df.count.assert_called_once_with()
+        start_queries.assert_called_once_with(None, None, "classified", lookup_df)
         metrics_server.shutdown.assert_called_once_with()
         metrics_server.server_close.assert_called_once_with()
 
@@ -323,10 +468,8 @@ class BatchSummaryBehaviorTests(unittest.TestCase):
             schema=stream_job.LOOKUP_SCHEMA,
         )
 
-        with patch.object(stream_job, "load_lookup", return_value=lookup_df), patch.object(
-            stream_job, "log_batch_summary"
-        ) as mock_log:
-            stream_job.write_batch_summary(batch_df, batch_id=12)
+        with patch.object(stream_job, "log_batch_summary") as mock_log:
+            stream_job.write_batch_summary(batch_df, batch_id=12, lookup_df=lookup_df)
 
         mock_log.assert_called_once()
         summary = mock_log.call_args.args[0]
@@ -384,10 +527,12 @@ class BatchSummaryBehaviorTests(unittest.TestCase):
             schema=stream_job.LOOKUP_SCHEMA,
         )
 
-        with patch.object(stream_job, "load_lookup", return_value=lookup_df), patch.object(
-            stream_job, "log_batch_summary"
-        ) as mock_log, patch.object(stream_job.F, "current_timestamp", return_value=stream_job.F.lit("2026-04-08T12:00:10Z").cast("timestamp")):
-            stream_job.write_batch_summary(batch_df, batch_id=13)
+        with patch.object(stream_job, "log_batch_summary") as mock_log, patch.object(
+            stream_job.F,
+            "current_timestamp",
+            return_value=stream_job.F.lit("2026-04-08T12:00:10Z").cast("timestamp"),
+        ):
+            stream_job.write_batch_summary(batch_df, batch_id=13, lookup_df=lookup_df)
 
         summary = mock_log.call_args.args[0]
         self.assertEqual(summary["processed_count"], 2)
@@ -446,10 +591,12 @@ class BatchSummaryBehaviorTests(unittest.TestCase):
             schema=stream_job.LOOKUP_SCHEMA,
         )
 
-        with patch.object(stream_job, "load_lookup", return_value=lookup_df), patch.object(
-            stream_job, "STREAM_METRICS_REGISTRY"
-        ) as mock_registry:
-            stream_job.write_batch_summary(batch_df, batch_id=14)
+        with patch.object(stream_job, "STREAM_METRICS_REGISTRY") as mock_registry, patch.object(
+            stream_job.F,
+            "current_timestamp",
+            return_value=stream_job.F.lit("2026-04-08T12:00:10Z").cast("timestamp"),
+        ):
+            stream_job.write_batch_summary(batch_df, batch_id=14, lookup_df=lookup_df)
 
         mock_registry.update_batch_metrics.assert_called_once_with(
             batch_id=14,
@@ -459,7 +606,10 @@ class BatchSummaryBehaviorTests(unittest.TestCase):
             breach_count=0,
             avg_latency_seconds=None,
             p95_latency_seconds=None,
+            event_time_lag_p95_seconds=10.0,
+            watermark_delay_seconds=610.0,
         )
+        mock_registry.update_consumer_lag.assert_not_called()
 
     def test_build_breach_windows_aggregates_breach_rate_by_window(self):
         processed = self.spark.createDataFrame(
@@ -589,6 +739,52 @@ class ProcessedBatchWriteTests(unittest.TestCase):
 
         self.assertTrue(breach_files)
 
+    def test_write_latest_state_to_redis_updates_ingest_to_redis_metric(self):
+        batch_df = self.spark.createDataFrame(
+            [
+                {
+                    "device_id": "FR-0102",
+                    "event_id": "evt-001",
+                    "event_time": "2026-04-08T12:00:00Z",
+                    "replay_sent_at": "2026-04-08T12:00:06Z",
+                    "temperature_c": 4.0,
+                    "door_open": False,
+                    "battery_pct": 88,
+                    "facility_id": "FAC-0002",
+                    "facility_name": "Clinic B",
+                    "district": "Udaipur",
+                    "state": "Rajasthan",
+                    "storage_type": "refrigerator",
+                    "min_temp_c": 2.0,
+                    "max_temp_c": 8.0,
+                    "breach_status": "safe",
+                    "event_ts": "2026-04-08T12:00:00Z",
+                    "kafka_ingest_ts": "2026-04-08T12:00:02Z",
+                    "offset": 1,
+                }
+            ]
+        ).withColumn("event_ts", F.to_timestamp("event_ts")).withColumn(
+            "kafka_ingest_ts", F.to_timestamp("kafka_ingest_ts")
+        )
+
+        redis_client = Mock()
+        redis_pipeline = Mock()
+        redis_client.pipeline.return_value = redis_pipeline
+
+        with patch.object(stream_job, "STREAM_METRICS_REGISTRY") as mock_registry, patch.object(
+            stream_job, "redis"
+        ) as mock_redis, patch.object(
+            stream_job.F,
+            "current_timestamp",
+            return_value=stream_job.F.lit("2026-04-08T12:00:10Z").cast("timestamp"),
+        ):
+            mock_redis.Redis.return_value = redis_client
+            stream_job.write_latest_state_to_redis(batch_df, batch_id=15)
+
+        mock_registry.update_redis_metrics.assert_called_once_with(
+            ingest_to_redis_p95_seconds=4.0
+        )
+
 
 class ClassifiedBatchWriteTests(unittest.TestCase):
     @classmethod
@@ -648,12 +844,163 @@ class ClassifiedBatchWriteTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as invalid_dir, patch.object(
             stream_job, "INVALID_OUTPUT_PATH", invalid_dir
         ), patch.object(stream_job, "write_batch_summary") as mock_summary:
-            stream_job.write_classified_batch(batch_df, batch_id=4)
+            lookup_df = self.spark.createDataFrame(
+                [
+                    {
+                        "device_id": "FR-0102",
+                        "facility_id": "FAC-0002",
+                        "facility_name": "Clinic B",
+                        "district": "Udaipur",
+                        "state": "Rajasthan",
+                        "min_temp_c": 2.0,
+                        "max_temp_c": 8.0,
+                        "storage_type": "refrigerator",
+                    }
+                ],
+                schema=stream_job.LOOKUP_SCHEMA,
+            )
+            stream_job.write_classified_batch(batch_df, batch_id=4, lookup_df=lookup_df)
             invalid_files = list(Path(invalid_dir).rglob("*.json"))
 
         self.assertTrue(invalid_files)
         mock_summary.assert_called_once()
         self.assertEqual(mock_summary.call_args.args[1], 4)
+
+
+class OptimizedBatchWriteTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.spark = (
+            SparkSession.builder.master("local[1]")
+            .appName("optimized-batch-tests")
+            .config("spark.sql.shuffle.partitions", "1")
+            .getOrCreate()
+        )
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.spark.stop()
+
+    def test_write_optimized_batch_writes_invalid_processed_and_breach_outputs(self):
+        lookup_df = self.spark.createDataFrame(
+            [
+                {
+                    "device_id": "FR-0102",
+                    "facility_id": "FAC-0002",
+                    "facility_name": "Clinic B",
+                    "district": "Udaipur",
+                    "state": "Rajasthan",
+                    "min_temp_c": 2.0,
+                    "max_temp_c": 8.0,
+                    "storage_type": "refrigerator",
+                }
+            ],
+            schema=stream_job.LOOKUP_SCHEMA,
+        )
+        batch_df = self.spark.createDataFrame(
+            [
+                {
+                    "raw_payload": '{"event_id":"evt-001"}',
+                    "kafka_ingest_ts": "2026-04-08T12:00:02Z",
+                    "partition": 0,
+                    "offset": 1,
+                    "event_id": "evt-001",
+                    "device_id": "FR-0102",
+                    "event_time": "2026-04-08T12:00:00Z",
+                    "replay_sent_at": "2026-04-08T12:00:06Z",
+                    "temperature_c": 4.0,
+                    "door_open": False,
+                    "battery_pct": 88,
+                    "location_lat": 24.5854,
+                    "location_lon": 73.7125,
+                    "invalid_reason": None,
+                    "event_ts": "2026-04-08T12:00:00Z",
+                },
+                {
+                    "raw_payload": '{"event_id":"evt-001"}',
+                    "kafka_ingest_ts": "2026-04-08T12:00:03Z",
+                    "partition": 0,
+                    "offset": 2,
+                    "event_id": "evt-001",
+                    "device_id": "FR-0102",
+                    "event_time": "2026-04-08T12:00:00Z",
+                    "replay_sent_at": "2026-04-08T12:00:06Z",
+                    "temperature_c": 4.0,
+                    "door_open": False,
+                    "battery_pct": 88,
+                    "location_lat": 24.5854,
+                    "location_lon": 73.7125,
+                    "invalid_reason": None,
+                    "event_ts": "2026-04-08T12:00:00Z",
+                },
+                {
+                    "raw_payload": '{"event_id":"evt-002"}',
+                    "kafka_ingest_ts": "2026-04-08T12:00:04Z",
+                    "partition": 0,
+                    "offset": 3,
+                    "event_id": "evt-002",
+                    "device_id": "FR-9999",
+                    "event_time": "2026-04-08T12:00:01Z",
+                    "replay_sent_at": "2026-04-08T12:00:07Z",
+                    "temperature_c": 4.0,
+                    "door_open": False,
+                    "battery_pct": 88,
+                    "location_lat": 24.5854,
+                    "location_lon": 73.7125,
+                    "invalid_reason": None,
+                    "event_ts": "2026-04-08T12:00:01Z",
+                },
+                {
+                    "raw_payload": '{"event_id":"evt-003"}',
+                    "kafka_ingest_ts": "2026-04-08T12:00:05Z",
+                    "partition": 0,
+                    "offset": 4,
+                    "event_id": "evt-003",
+                    "device_id": None,
+                    "event_time": "2026-04-08T12:00:02Z",
+                    "replay_sent_at": None,
+                    "temperature_c": 4.0,
+                    "door_open": False,
+                    "battery_pct": 88,
+                    "location_lat": 24.5854,
+                    "location_lon": 73.7125,
+                    "invalid_reason": "missing_device_id",
+                    "event_ts": "2026-04-08T12:00:02Z",
+                },
+            ]
+        ).withColumn("kafka_ingest_ts", F.to_timestamp("kafka_ingest_ts")).withColumn(
+            "event_ts", F.to_timestamp("event_ts")
+        )
+
+        with tempfile.TemporaryDirectory() as processed_dir, tempfile.TemporaryDirectory() as invalid_dir, tempfile.TemporaryDirectory() as breach_dir, patch.object(
+            stream_job, "PROCESSED_OUTPUT_PATH", processed_dir
+        ), patch.object(
+            stream_job, "INVALID_OUTPUT_PATH", invalid_dir
+        ), patch.object(
+            stream_job, "BREACH_WINDOW_OUTPUT_PATH", breach_dir
+        ), patch.object(
+            stream_job, "write_latest_state_to_redis"
+        ) as mock_redis_write, patch.object(
+            stream_job, "STREAM_METRICS_REGISTRY"
+        ) as mock_registry, patch.object(
+            stream_job, "log_batch_summary"
+        ) as mock_log, patch.object(
+            stream_job.F,
+            "current_timestamp",
+            return_value=stream_job.F.lit("2026-04-08T12:00:10Z").cast("timestamp"),
+        ):
+            stream_job.write_optimized_batch(batch_df, batch_id=21, lookup_df=lookup_df)
+            processed_count = self.spark.read.parquet(processed_dir).count()
+            invalid_count = self.spark.read.json(invalid_dir).count()
+            breach_count = self.spark.read.json(breach_dir).count()
+
+        self.assertEqual(processed_count, 1)
+        self.assertEqual(invalid_count, 2)
+        self.assertGreaterEqual(breach_count, 1)
+        mock_redis_write.assert_called_once()
+        mock_registry.update_last_seen_offsets.assert_called_once_with({0: 4})
+        mock_registry.update_batch_metrics.assert_called_once()
+        self.assertEqual(mock_log.call_args.args[0]["processed_count"], 1)
 
 
 class StreamTransformationTests(unittest.TestCase):
