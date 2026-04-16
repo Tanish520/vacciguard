@@ -298,6 +298,7 @@ class ManifestBuilderTests(unittest.TestCase):
         container = manifest["spec"]["template"]["spec"]["containers"][0]
         self.assertEqual(manifest["metadata"]["name"], "replay-producer-run-003")
         self.assertEqual(template["metadata"]["labels"]["job_name"], "replay-producer")
+        self.assertEqual(template["metadata"]["labels"]["pipeline_target"], "baseline")
         self.assertEqual(container["image"], "repo/replay:tag")
         self.assertEqual(container["env"][1]["value"], "vacciguard-eval-run-003")
         self.assertEqual(container["env"][3]["value"], "6.0")

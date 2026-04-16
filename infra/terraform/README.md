@@ -35,6 +35,9 @@ The observability outputs include:
 - CloudWatch log group names for the stream processor, replay producer, and
   evaluation controller
 
+The managed Grafana dashboard uses the `pipeline_target` label to plot
+baseline and optimized series in the same panels.
+
 ## Next Handoff
 
 After `terraform apply`, use the outputs to hand off into cluster access and

@@ -231,3 +231,21 @@ class MonitoringManifestTests(unittest.TestCase):
 
     def test_cloudwatch_readme_exists(self):
         self.assertTrue((ROOT / "infra/monitoring/cloudwatch/README.md").exists())
+
+    def test_aws_managed_readme_calls_out_label_based_comparison(self):
+        raw = (ROOT / "infra/monitoring/aws-managed/README.md").read_text(encoding="utf-8")
+        self.assertIn("baseline and optimized runs on the same panels", raw)
+        self.assertIn("pipeline_target", raw)
+
+    def test_aws_managed_dashboard_groups_series_by_pipeline_target(self):
+        dashboard = json.loads(
+            (ROOT / "infra/monitoring/aws-managed/grafana/dashboards/baseline-vs-optimized.json").read_text(
+                encoding="utf-8"
+            )
+        )
+
+        self.assertEqual(dashboard["title"], "VacciGuard Baseline vs Optimized")
+        for panel in dashboard["panels"]:
+            self.assertEqual(panel.get("datasource"), "AMP")
+            exprs = [target["expr"] for target in panel.get("targets", []) if "expr" in target]
+            self.assertTrue(any("pipeline_target" in expr for expr in exprs))

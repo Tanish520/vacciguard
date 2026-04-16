@@ -4,6 +4,9 @@ metadata:
   name: replay-producer
 spec:
   template:
+    metadata:
+      labels:
+        pipeline_target: baseline
     spec:
       serviceAccountName: vacciguard-pipeline
       restartPolicy: Never

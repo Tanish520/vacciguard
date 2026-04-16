@@ -271,9 +271,14 @@ kind: Job
 metadata:
   name: ${REPLAY_JOB_NAME}
   namespace: ${NAMESPACE}
+  labels:
+    pipeline_target: baseline
 spec:
   backoffLimit: 0
   template:
+    metadata:
+      labels:
+        pipeline_target: baseline
     spec:
       serviceAccountName: vacciguard-pipeline
       restartPolicy: Never

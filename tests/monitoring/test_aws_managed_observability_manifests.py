@@ -25,12 +25,15 @@ class AwsManagedObservabilityManifestTests(unittest.TestCase):
         namespace_raw = (ROOT / "infra/kubernetes/aws-observability/namespace.yaml").read_text(encoding="utf-8")
         serviceaccount_raw = (ROOT / "infra/kubernetes/aws-observability/serviceaccount-adot-collector.yaml").read_text(encoding="utf-8")
         rolebinding_raw = (ROOT / "infra/kubernetes/aws-observability/rolebinding-adot-collector.yaml").read_text(encoding="utf-8")
+        configmap_raw = (ROOT / "infra/kubernetes/aws-observability/configmap-collector.yaml").read_text(encoding="utf-8")
 
         self.assertIn("name: observability", namespace_raw)
         self.assertIn("name: adot-collector", serviceaccount_raw)
         self.assertIn("observability", serviceaccount_raw)
         self.assertIn("eks.amazonaws.com/role-arn", serviceaccount_raw)
         self.assertIn("system:serviceaccount:observability:adot-collector", rolebinding_raw)
+        self.assertIn("__meta_kubernetes_pod_label_pipeline_target", configmap_raw)
+        self.assertIn("target_label: pipeline_target", configmap_raw)
 
     def test_terraform_observability_mentions_amp_and_remote_write(self):
         terraform_raw = (ROOT / "infra/terraform/observability.tf").read_text(encoding="utf-8")
@@ -68,6 +71,7 @@ class AwsManagedObservabilityManifestTests(unittest.TestCase):
             for target in panel.get("targets", [])
             if "expr" in target
         ]
+        self.assertTrue(any("pipeline_target" in expr for expr in all_exprs))
         self.assertTrue(any("vacciguard_stream_latest_batch_avg_latency_seconds" in expr for expr in all_exprs))
         self.assertTrue(any("vacciguard_stream_latest_batch_p95_latency_seconds" in expr for expr in all_exprs))
         self.assertTrue(any("vacciguard_stream_latest_batch_ingest_to_redis_p95_seconds" in expr for expr in all_exprs))

@@ -11,6 +11,7 @@ spec:
     metadata:
       labels:
         app: stream-processor
+        pipeline_target: baseline
     spec:
       serviceAccountName: vacciguard-pipeline
       containers:

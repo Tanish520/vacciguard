@@ -6,6 +6,9 @@
 - `aws-observability`: managed AMP / Grafana / CloudWatch collector bundle for AWS runs
 - monitoring resources live under `infra/monitoring/`
 
+The AWS observability bundle preserves a `pipeline_target` label during
+scraping so Grafana can render the baseline and optimized series together.
+
 Validate with:
 
 ```bash

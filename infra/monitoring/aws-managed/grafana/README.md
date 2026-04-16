@@ -11,5 +11,9 @@ Expected data sources:
 - Amazon Managed Service for Prometheus (AMP) for application metrics
 - CloudWatch for infrastructure and log context
 
+The dashboard expects the scraped application metrics to include a
+`pipeline_target` label so the baseline and optimized series can appear on the
+same chart.
+
 The dashboard should focus on the same metrics produced by the stream processor
 and replay producer so baseline and optimized runs can be compared on one page.
