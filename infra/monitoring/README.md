@@ -5,6 +5,7 @@ This directory contains the baseline observability stack for VacciGuard.
 - `cloudwatch/`: AWS and EKS runtime visibility guidance
 - `prometheus/`: in-cluster metrics collection
 - `grafana/`: baseline dashboard presentation
+- `aws-managed/`: AMP, Amazon Managed Grafana, and CloudWatch guidance for EKS evaluation runs
 
 The baseline monitoring split is:
 
@@ -74,3 +75,7 @@ Important caveat: the replay producer is a short-lived Kubernetes Job, so its me
 
 Prometheus and Grafana remain the live observability layer during AWS-native evaluation runs.
 The evaluation controller does not replace monitoring. It executes the run inside EKS and writes the formal report to S3 after the run completes.
+
+When the AWS-managed path is enabled, keep the local stack for development but
+send evaluation runs through the managed bundle under `infra/monitoring/aws-managed`
+and `infra/kubernetes/aws-observability`.

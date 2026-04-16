@@ -1,0 +1,98 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "graphTooltip": 1,
+  "panels": [
+    {
+      "datasource": "AMP",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "id": 1,
+      "title": "Baseline vs Optimized Avg Latency",
+      "targets": [
+        {"expr": "avg(vacciguard_stream_latest_batch_avg_latency_seconds)", "refId": "A"}
+      ],
+      "type": "timeseries"
+    },
+    {
+      "datasource": "AMP",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "id": 2,
+      "title": "Baseline vs Optimized P95 Latency",
+      "targets": [
+        {"expr": "avg(vacciguard_stream_latest_batch_p95_latency_seconds)", "refId": "A"}
+      ],
+      "type": "timeseries"
+    },
+    {
+      "datasource": "AMP",
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 8},
+      "id": 3,
+      "title": "Ingest-to-Redis P95",
+      "targets": [
+        {"expr": "avg(vacciguard_stream_latest_batch_ingest_to_redis_p95_seconds)", "refId": "A"}
+      ],
+      "type": "stat"
+    },
+    {
+      "datasource": "AMP",
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 8},
+      "id": 4,
+      "title": "Processed Events",
+      "targets": [
+        {"expr": "sum(vacciguard_stream_processed_events_total)", "refId": "A"}
+      ],
+      "type": "stat"
+    },
+    {
+      "datasource": "AMP",
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 8},
+      "id": 5,
+      "title": "Invalid Events",
+      "targets": [
+        {"expr": "sum(vacciguard_stream_invalid_events_total)", "refId": "A"}
+      ],
+      "type": "stat"
+    },
+    {
+      "datasource": "AMP",
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 16},
+      "id": 6,
+      "title": "Deduplicated Events",
+      "targets": [
+        {"expr": "sum(vacciguard_stream_deduplicated_events_total)", "refId": "A"}
+      ],
+      "type": "stat"
+    },
+    {
+      "datasource": "AMP",
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 16},
+      "id": 7,
+      "title": "Breach Events",
+      "targets": [
+        {"expr": "sum(vacciguard_stream_breach_events_total)", "refId": "A"}
+      ],
+      "type": "stat"
+    },
+    {
+      "datasource": "AMP",
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 16},
+      "id": 8,
+      "title": "Consumer Lag",
+      "targets": [
+        {"expr": "vacciguard_stream_consumer_lag_records", "refId": "A"}
+      ],
+      "type": "stat"
+    }
+  ],
+  "refresh": "15s",
+  "schemaVersion": 38,
+  "tags": ["vacciGuard", "aws-managed", "baseline", "optimized"],
+  "templating": {"list": []},
+  "time": {"from": "now-6h", "to": "now"},
+  "timezone": "utc",
+  "title": "VacciGuard Baseline vs Optimized",
+  "uid": "vacciguard-aws-managed-comparison",
+  "version": 1
+}
