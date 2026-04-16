@@ -171,6 +171,7 @@ def patch_pipeline_config(contract: controller.RunContract) -> None:
         app_name=data["APP_NAME"],
         kafka_bootstrap_servers=data["KAFKA_BOOTSTRAP_SERVERS"],
         kafka_topic_partitions=data.get("KAFKA_TOPIC_PARTITIONS", "1"),
+        pipeline_mode=contract.pipeline_target,
         trigger_interval=data["TRIGGER_INTERVAL"],
         watermark_delay=data["WATERMARK_DELAY"],
         redis_host=data["REDIS_HOST"],

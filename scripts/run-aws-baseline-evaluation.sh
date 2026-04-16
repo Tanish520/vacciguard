@@ -202,6 +202,7 @@ kubectl create configmap vacciguard-pipeline-config \
   --from-literal=KAFKA_BOOTSTRAP_SERVERS="$KAFKA_BOOTSTRAP_SERVERS" \
   --from-literal=KAFKA_TOPIC_PARTITIONS="${KAFKA_TOPIC_PARTITIONS:-1}" \
   --from-literal=KAFKA_STARTING_OFFSETS="earliest" \
+  --from-literal=PIPELINE_MODE="baseline" \
   --from-literal=TRIGGER_INTERVAL="$TRIGGER_INTERVAL" \
   --from-literal=WATERMARK_DELAY="$WATERMARK_DELAY" \
   --from-literal=REDIS_HOST="$REDIS_HOST" \
