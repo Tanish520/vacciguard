@@ -348,6 +348,7 @@ class ManifestBuilderTests(unittest.TestCase):
             app_name="vacciguard-stream-processor",
             kafka_bootstrap_servers="kafka:9092",
             kafka_topic_partitions="6",
+            pipeline_mode="optimized",
             trigger_interval="5 seconds",
             watermark_delay="10 minutes",
             redis_host="redis.example",
@@ -364,6 +365,7 @@ class ManifestBuilderTests(unittest.TestCase):
             patch["data"]["CHECKPOINT_ROOT"],
             "s3a://vacciguard-baseline-data/evaluations/optimized/spike/run-004/checkpoints",
         )
+        self.assertEqual(patch["data"]["PIPELINE_MODE"], "optimized")
 
 
 class ControllerMainTests(unittest.TestCase):

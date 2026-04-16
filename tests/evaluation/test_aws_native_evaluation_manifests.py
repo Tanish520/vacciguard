@@ -75,6 +75,7 @@ class AwsNativeEvaluationManifestTests(unittest.TestCase):
         self.assertIn("TRIGGER_INTERVAL: 2 seconds", configmap_raw)
         self.assertIn('SPARK_SQL_SHUFFLE_PARTITIONS: "8"', configmap_raw)
         self.assertIn('SPARK_DEFAULT_PARALLELISM: "8"', configmap_raw)
+        self.assertIn("PIPELINE_MODE: baseline", configmap_raw)
         self.assertIn('cpu: "1500m"', stream_patch_raw)
         self.assertIn('memory: "2560Mi"', stream_patch_raw)
         self.assertIn('cpu: "2000m"', stream_patch_raw)
