@@ -20,3 +20,7 @@ data/output/**
 !data/output/invalid/.gitkeep
 !data/output/processed/
 !data/output/processed/.gitkeep
+
+# Local workload-shifting helpers used during evaluation experimentation.
+scripts/shift_workload_timestamps.py
+tests/evaluation/test_shift_workload_timestamps.py
