@@ -163,6 +163,55 @@ class RunContractTests(unittest.TestCase):
                 failure_reason=None,
             )
 
+    def test_render_markdown_report_includes_operational_summary(self):
+        contract = controller.resolve_run_contract(
+            pipeline_target="baseline",
+            scenario="spike",
+            run_id="run-003",
+            workload_family_version="evaluation-workload-v1",
+            bucket_name="vacciguard-baseline-data",
+        )
+        report_payload = controller.build_report_payload(
+            contract=contract,
+            metrics={
+                "input_events": 198000,
+                "throughput_eps": 999.4,
+                "processed_events": 52,
+                "invalid_events": 6,
+                "deduplicated_events": 9,
+                "breach_events": 52,
+                "processed_output_objects": 52,
+                "invalid_output_objects": 6,
+                "breach_window_output_objects": 52,
+                "stream_metrics_source": "metrics_endpoint",
+                "event_time_lag_p95_seconds": 12.25,
+                "ingest_to_redis_p95_seconds": 4.5,
+                "watermark_delay_seconds": 601.0,
+                "consumer_lag_records": 17,
+                "invalid_rate_pct": 1.82,
+                "deduplication_rate_pct": 0.45,
+                "processed_rate_pct": 98.03,
+                "pipeline_success": True,
+                "controller_job_success": True,
+                "replay_job_success": True,
+            },
+            status="succeeded",
+            failure_reason=None,
+        )
+
+        markdown = controller.render_markdown_report(report_payload)
+
+        self.assertIn("# Evaluation Report: run-003", markdown)
+        self.assertIn("## Summary", markdown)
+        self.assertIn("- pipeline target: baseline", markdown)
+        self.assertIn("- report json: s3://vacciguard-baseline-data/evaluations/baseline/spike/run-003/report.json", markdown)
+        self.assertIn("## Metrics", markdown)
+        self.assertIn("| Stream metrics source | metrics_endpoint |", markdown)
+        self.assertIn("| Ingest-to-Redis P95 | 4.50 s |", markdown)
+        self.assertIn("| Consumer lag | 17 records |", markdown)
+        self.assertIn("| Pipeline success | True |", markdown)
+        self.assertIn("| Processed output objects | 52 |", markdown)
+
 
 class ManifestBuilderTests(unittest.TestCase):
     def test_build_workload_configmap_manifest_uses_run_scoped_name(self):
@@ -259,6 +308,32 @@ class ManifestBuilderTests(unittest.TestCase):
             "vacciguard-workload-run-003",
         )
 
+    def test_build_replay_job_manifest_supports_s3_workload_uri(self):
+        contract = controller.resolve_run_contract(
+            pipeline_target="baseline",
+            scenario="normal",
+            run_id="run-003",
+            workload_family_version="evaluation-workload-v1",
+            bucket_name="vacciguard-baseline-data",
+        )
+
+        manifest = controller.build_replay_job_manifest(
+            contract=contract,
+            replay_image="repo/replay:tag",
+            kafka_bootstrap_servers="kafka:9092",
+            workload_configmap_name=None,
+            workload_runtime_path="s3://vacciguard-baseline-data/evaluations/run-003/workloads/normal.events.ndjson",
+            target_eps=6.0,
+        )
+
+        container = manifest["spec"]["template"]["spec"]["containers"][0]
+        self.assertEqual(
+            container["env"][2]["value"],
+            "s3://vacciguard-baseline-data/evaluations/run-003/workloads/normal.events.ndjson",
+        )
+        self.assertNotIn("volumes", manifest["spec"]["template"]["spec"])
+        self.assertNotIn("volumeMounts", container)
+
     def test_build_pipeline_config_patch_uses_isolated_paths(self):
         contract = controller.resolve_run_contract(
             pipeline_target="optimized",
@@ -301,6 +376,27 @@ class ControllerMainTests(unittest.TestCase):
 
         self.assertTrue(hasattr(controller_main, "main"))
 
+    def test_load_workload_inputs_honors_duration_override_env(self):
+        controller_main = load_module(
+            "evaluation_controller_main_duration_override",
+            "services/evaluation-controller/main.py",
+        )
+        contract = controller.resolve_run_contract(
+            pipeline_target="baseline",
+            scenario="spike",
+            run_id="run-005",
+            workload_family_version="evaluation-workload-v1",
+            bucket_name="vacciguard-baseline-data",
+        )
+
+        with mock.patch.dict(
+            os.environ, {"WORKLOAD_DURATION_MINUTES": "3"}, clear=False
+        ):
+            _, manifest = controller_main.load_workload_inputs(contract)
+
+        self.assertEqual(manifest["duration_minutes"], 3)
+        self.assertEqual(manifest["event_count"], 198000)
+
     def test_main_writes_report_payload_when_orchestration_succeeds(self):
         controller_main = load_module(
             "evaluation_controller_main", "services/evaluation-controller/main.py"
@@ -316,6 +412,8 @@ class ControllerMainTests(unittest.TestCase):
 
         with mock.patch.object(
             controller_main, "load_runtime_inputs", return_value=contract
+        ), mock.patch.dict(
+            os.environ, {"EVALUATION_CONTROLLER_MODE": "orchestrate"}, clear=False
         ), mock.patch.object(
             controller_main, "run_orchestration", return_value={"processed_events": 10}
         ), mock.patch.object(controller_main, "upload_reports") as mock_upload:
@@ -366,6 +464,8 @@ class ControllerMainTests(unittest.TestCase):
 
         with mock.patch.object(
             controller_main, "load_runtime_inputs", return_value=contract
+        ), mock.patch.dict(
+            os.environ, {"EVALUATION_CONTROLLER_MODE": "orchestrate"}, clear=False
         ), mock.patch.object(
             controller_main,
             "run_orchestration",
@@ -436,6 +536,10 @@ class ControllerMainTests(unittest.TestCase):
                 ROOT / "services/evaluation-controller/aws_baseline_metrics.py",
                 temp_root / "aws_baseline_metrics.py",
             )
+            shutil.copy(
+                ROOT / "services/evaluation-controller/workload_factory.py",
+                temp_root / "workload_factory.py",
+            )
 
             subprocess.run(
                 [
@@ -467,6 +571,8 @@ class OrchestrationFlowTests(unittest.TestCase):
             metrics = controller.extract_metrics_from_logs(
                 "replay",
                 "stream",
+                "prometheus",
+                {"processed_output_objects": 52},
                 {
                     "pipeline_target": "baseline",
                     "scenario": "normal",
@@ -474,8 +580,13 @@ class OrchestrationFlowTests(unittest.TestCase):
                 },
             )
 
-        mock_extract.assert_called_once_with("replay", "stream")
+        mock_extract.assert_called_once_with(
+            "replay",
+            "stream",
+            stream_metrics_payload="prometheus",
+        )
         self.assertEqual(metrics["processed_events"], 27)
+        self.assertEqual(metrics["processed_output_objects"], 52)
         self.assertEqual(metrics["pipeline_target"], "baseline")
         self.assertEqual(metrics["scenario"], "normal")
         self.assertEqual(
@@ -503,13 +614,36 @@ class OrchestrationFlowTests(unittest.TestCase):
             mock.patch.object(controller_main, "launch_replay_job"), \
             mock.patch.object(controller_main, "wait_for_replay_completion"), \
             mock.patch.object(
+                controller_main,
+                "load_workload_inputs",
+                return_value=(
+                    "workload",
+                    {
+                        "target_eps": 1000.0,
+                        "duration_minutes": 3,
+                        "event_count": 198000,
+                    },
+                ),
+            ), \
+            mock.patch.object(
                 controller_main, "collect_replay_logs", return_value="replay"
+            ), \
+            mock.patch.object(
+                controller_main,
+                "wait_for_stream_metrics_settlement",
+                return_value="prometheus",
             ), \
             mock.patch.object(
                 controller_main, "collect_stream_logs", return_value="stream"
             ), \
             mock.patch.object(
-                controller_main, "list_s3_run_objects", return_value="objects"
+                controller_main,
+                "summarize_s3_outputs",
+                return_value={
+                    "processed_output_objects": 52,
+                    "invalid_output_objects": 6,
+                    "breach_window_output_objects": 52,
+                },
             ), \
             mock.patch.object(
                 controller_main.controller,
@@ -521,10 +655,21 @@ class OrchestrationFlowTests(unittest.TestCase):
         mock_extract.assert_called_once_with(
             "replay",
             "stream",
+            "prometheus",
+            {
+                "processed_output_objects": 52,
+                "invalid_output_objects": 6,
+                "breach_window_output_objects": 52,
+            },
             {
                 "pipeline_target": "baseline",
                 "scenario": "normal",
                 "workload_family_version": "evaluation-workload-v1",
+                "configured_events_per_second": 1000.0,
+                "workload_duration_minutes": 3,
+                "pipeline_success": True,
+                "controller_job_success": True,
+                "replay_job_success": True,
             },
         )
         self.assertEqual(metrics["processed_events"], 27)
