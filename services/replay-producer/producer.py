@@ -20,6 +20,7 @@ import time
 import json
 import tempfile
 import threading
+from collections import deque
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -47,6 +48,7 @@ EVENTS_PER_SECOND       = float(os.environ.get("EVENTS_PER_SECOND", "5.0"))
 LOOP                    = os.environ.get("LOOP", "false").lower() == "true"
 REPLAY_METRICS_PORT     = int(os.environ.get("REPLAY_METRICS_PORT", "9109"))
 REPLAY_METRICS_DRAIN_SECONDS = float(os.environ.get("REPLAY_METRICS_DRAIN_SECONDS", "15"))
+REPLAY_MAX_IN_FLIGHT    = int(os.environ.get("REPLAY_MAX_IN_FLIGHT", "32"))
 
 
 class ReplayMetricsRegistry:
@@ -226,12 +228,16 @@ def replay(producer, events, eps, metrics_registry=None):
 
     next-send-time keeps the actual rate accurate at high eps values (e.g. 500)
     where time.sleep(1/eps) alone would drift due to Python overhead.
+    Sends are bounded-async: we keep a small number of in-flight Kafka futures
+    and drain them in FIFO order to preserve predictable replay timing.
     """
     interval  = 1.0 / eps
     total     = len(events)
-    sent      = 0
+    submitted = 0
+    acknowledged = 0
     start     = time.monotonic()
     next_send = start
+    pending_futures = deque()
 
     if metrics_registry is not None:
         metrics_registry.begin_run(configured_events_per_second=eps)
@@ -247,18 +253,30 @@ def replay(producer, events, eps, metrics_registry=None):
 
             payload = encode_event_payload(event)
             send_future = producer.send(KAFKA_TOPIC, value=payload)
-            send_future.get()
-            sent += 1
+            pending_futures.append(send_future)
+            submitted += 1
+            next_send = start + submitted * interval
+
+            if len(pending_futures) >= REPLAY_MAX_IN_FLIGHT:
+                pending_futures.popleft().get()
+                acknowledged += 1
+                if metrics_registry is not None:
+                    metrics_registry.record_sent_event(
+                        duration_seconds=time.monotonic() - start,
+                    )
+
+            if submitted % 50 == 0 or submitted == total:
+                elapsed    = time.monotonic() - start
+                actual_eps = submitted / elapsed if elapsed > 0 else 0
+                log.info("Sent %d/%d  actual %.1f eps", submitted, total, actual_eps)
+
+        while pending_futures:
+            pending_futures.popleft().get()
+            acknowledged += 1
             if metrics_registry is not None:
                 metrics_registry.record_sent_event(
                     duration_seconds=time.monotonic() - start,
                 )
-            next_send = start + sent * interval
-
-            if sent % 50 == 0 or sent == total:
-                elapsed    = time.monotonic() - start
-                actual_eps = sent / elapsed if elapsed > 0 else 0
-                log.info("Sent %d/%d  actual %.1f eps", sent, total, actual_eps)
 
         producer.flush()
     except Exception:
@@ -275,7 +293,7 @@ def replay(producer, events, eps, metrics_registry=None):
 
     log.info(
         "Replay complete: %d events in %.1fs  avg %.1f eps",
-        sent, elapsed, sent / elapsed,
+        acknowledged, elapsed, acknowledged / elapsed,
     )
 
 # ── Entry point ───────────────────────────────────────────────────────────────

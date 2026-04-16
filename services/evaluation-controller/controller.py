@@ -159,12 +159,13 @@ def build_pipeline_config_patch(
     pipeline_mode: str,
     trigger_interval: str,
     watermark_delay: str,
+    max_offsets_per_trigger: str | None = None,
     redis_host: str,
     redis_port: str,
     redis_db: str,
 ) -> dict[str, object]:
     prefix = f"s3a://{contract.bucket_name}/{contract.s3_prefix}"
-    return {
+    patch = {
         "apiVersion": "v1",
         "kind": "ConfigMap",
         "metadata": {
@@ -189,6 +190,9 @@ def build_pipeline_config_patch(
             "CHECKPOINT_ROOT": f"{prefix}/checkpoints",
         },
     }
+    if max_offsets_per_trigger is not None:
+        patch["data"]["MAX_OFFSETS_PER_TRIGGER"] = max_offsets_per_trigger
+    return patch
 
 
 def build_replay_job_manifest(

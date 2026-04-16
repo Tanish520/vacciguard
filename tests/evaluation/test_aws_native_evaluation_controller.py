@@ -352,6 +352,7 @@ class ManifestBuilderTests(unittest.TestCase):
             pipeline_mode="optimized",
             trigger_interval="5 seconds",
             watermark_delay="10 minutes",
+            max_offsets_per_trigger="2000",
             redis_host="redis.example",
             redis_port="6379",
             redis_db="0",
@@ -367,6 +368,7 @@ class ManifestBuilderTests(unittest.TestCase):
             "s3a://vacciguard-baseline-data/evaluations/optimized/spike/run-004/checkpoints",
         )
         self.assertEqual(patch["data"]["PIPELINE_MODE"], "optimized")
+        self.assertEqual(patch["data"]["MAX_OFFSETS_PER_TRIGGER"], "2000")
 
 
 class ControllerMainTests(unittest.TestCase):
