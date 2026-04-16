@@ -5,6 +5,13 @@ It can be initialized, planned, and applied against the live AWS account to
 provision the baseline EKS cluster, S3 bucket, Redis stack, IAM roles, and
 supporting network resources.
 
+It also provisions the AWS-managed observability foundation used by the EKS
+evaluation runs:
+
+- Amazon Managed Service for Prometheus for metrics storage and queries
+- Amazon Managed Grafana for dashboards
+- CloudWatch log groups and the Amazon CloudWatch Observability add-on
+
 ## Scope
 
 - provider and version configuration
@@ -13,6 +20,20 @@ supporting network resources.
 - baseline ElastiCache Redis scaffold
 - environment variables and outputs for later workload wiring
 - the live apply flow for the baseline foundation
+- AWS-managed observability resources and outputs
+
+## Managed Observability Notes
+
+Amazon Managed Grafana requires IAM Identity Center to be enabled in the AWS
+account. If the account does not have Identity Center configured yet, enable
+it before running `terraform apply`.
+
+The observability outputs include:
+
+- AMP workspace ARN and query endpoint
+- Grafana workspace ID and URL
+- CloudWatch log group names for the stream processor, replay producer, and
+  evaluation controller
 
 ## Next Handoff
 

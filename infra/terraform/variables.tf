@@ -78,3 +78,39 @@ variable "eks_node_max_size" {
   type        = number
   default     = 2
 }
+
+variable "observability_namespace" {
+  description = "Namespace that hosts the AWS-managed metrics collector."
+  type        = string
+  default     = "observability"
+}
+
+variable "amp_workspace_name" {
+  description = "Optional explicit Amazon Managed Prometheus workspace alias."
+  type        = string
+  default     = ""
+}
+
+variable "grafana_workspace_name" {
+  description = "Optional explicit Amazon Managed Grafana workspace name."
+  type        = string
+  default     = ""
+}
+
+variable "grafana_admin_email" {
+  description = "Administrative email for Amazon Managed Grafana workspace access."
+  type        = string
+  default     = "ops@vacciguard.local"
+}
+
+variable "cloudwatch_log_retention_days" {
+  description = "Retention in days for the application log groups exported from Terraform."
+  type        = number
+  default     = 14
+}
+
+variable "observability_mode" {
+  description = "Observability mode exposed for docs and outputs."
+  type        = string
+  default     = "managed"
+}

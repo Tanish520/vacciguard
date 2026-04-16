@@ -92,3 +92,6 @@ resource "aws_eks_addon" "ebs_csi" {
     aws_iam_role_policy_attachment.ebs_csi_driver,
   ]
 }
+
+# Managed observability resources are defined in observability.tf so they can
+# share the same cluster, IAM, and naming inputs as the baseline stack.
