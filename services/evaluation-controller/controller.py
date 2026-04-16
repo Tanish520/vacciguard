@@ -258,10 +258,11 @@ def build_replay_job_manifest(
             "backoffLimit": 0,
             "template": {
                 "metadata": {
-                    "labels": {
+                "labels": {
                         "app": REPLAY_JOB_BASE_NAME,
                         "job_name": REPLAY_JOB_BASE_NAME,
                         "run_id": contract.run_id,
+                        "pipeline_target": contract.pipeline_target,
                     }
                 },
                 "spec": template_spec,

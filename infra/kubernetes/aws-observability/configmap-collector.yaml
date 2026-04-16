@@ -31,6 +31,8 @@ data:
                 - source_labels: [__meta_kubernetes_pod_label_app]
                   action: keep
                   regex: stream-processor
+                - source_labels: [__meta_kubernetes_pod_label_pipeline_target]
+                  target_label: pipeline_target
                 - source_labels: [__meta_kubernetes_pod_name]
                   target_label: pod
             - job_name: replay-producer-metrics
@@ -50,6 +52,8 @@ data:
                 - source_labels: [__meta_kubernetes_pod_label_job_name]
                   action: keep
                   regex: replay-producer
+                - source_labels: [__meta_kubernetes_pod_label_pipeline_target]
+                  target_label: pipeline_target
                 - source_labels: [__meta_kubernetes_pod_name]
                   target_label: pod
 

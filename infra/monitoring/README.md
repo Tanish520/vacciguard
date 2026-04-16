@@ -79,3 +79,6 @@ The evaluation controller does not replace monitoring. It executes the run insid
 When the AWS-managed path is enabled, keep the local stack for development but
 send evaluation runs through the managed bundle under `infra/monitoring/aws-managed`
 and `infra/kubernetes/aws-observability`.
+
+The managed dashboard compares baseline and optimized runs on the same panels
+by grouping the application metrics with the `pipeline_target` label.

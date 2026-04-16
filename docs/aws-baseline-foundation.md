@@ -165,3 +165,7 @@ The same report also keeps placeholders for:
 - cost per GB processed
 
 Those four metrics stay as `Not run` until you execute dedicated spike, failure, and cost collection scenarios. That means the report is already useful for SLA-style evidence around latency and steady-state correctness, but it becomes a true SLA scorecard only when you attach target thresholds such as `P95 latency < 5 seconds` and `recovery time < 2 minutes`.
+
+In the AWS-managed observability path, the Grafana comparison dashboard groups
+series by `pipeline_target`, which lets you place baseline and optimized runs
+on the same panels for a direct visual comparison.

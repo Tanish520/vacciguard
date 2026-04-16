@@ -8,6 +8,9 @@ spec:
   strategy:
     type: Recreate
   template:
+    metadata:
+      labels:
+        pipeline_target: baseline
     spec:
       containers:
         - name: stream-processor
