@@ -13,9 +13,11 @@ development. They let us prove the end-to-end path before AWS infrastructure is
 brought online.
 """
 
+import functools
 import json
 import logging
 import os
+import re
 import threading
 import time
 from datetime import datetime
@@ -23,7 +25,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 import redis
-from kafka import KafkaAdminClient
+from kafka import KafkaAdminClient, KafkaConsumer, TopicPartition
 from kafka.admin import NewTopic
 from kafka.errors import NoBrokersAvailable, TopicAlreadyExistsError
 from pyspark.sql import DataFrame, SparkSession, Window
@@ -56,6 +58,7 @@ BREACH_WINDOW_OUTPUT_PATH = os.environ.get(
 CHECKPOINT_ROOT = os.environ.get("CHECKPOINT_ROOT", "/data/output/checkpoints")
 TRIGGER_INTERVAL = os.environ.get("TRIGGER_INTERVAL", "5 seconds")
 WATERMARK_DELAY = os.environ.get("WATERMARK_DELAY", "10 minutes")
+PIPELINE_MODE = os.environ.get("PIPELINE_MODE", "baseline")
 SPARK_SQL_SHUFFLE_PARTITIONS = os.environ.get("SPARK_SQL_SHUFFLE_PARTITIONS", "4")
 SPARK_DEFAULT_PARALLELISM = os.environ.get("SPARK_DEFAULT_PARALLELISM", "4")
 REDIS_HOST = os.environ.get("REDIS_HOST", "redis")
@@ -92,6 +95,7 @@ LOCAL_SPARK_JARS = os.environ.get(
     ),
 )
 STREAM_METRICS_PORT = int(os.environ.get("STREAM_METRICS_PORT", "9108"))
+_DURATION_PART_RE = re.compile(r"^\s*(?P<count>\d+)\s+(?P<unit>second|seconds|minute|minutes)\s*$")
 
 
 def summarize_batch_counts(
@@ -119,6 +123,7 @@ def summarize_batch_counts(
 class StreamMetricsRegistry:
     def __init__(self) -> None:
         self._lock = threading.Lock()
+        self._last_seen_offsets: dict[int, int] = {}
         self._metrics = {
             "vacciguard_stream_latest_batch_id": -1,
             "vacciguard_stream_latest_batch_timestamp_seconds": 0.0,
@@ -128,6 +133,10 @@ class StreamMetricsRegistry:
             "vacciguard_stream_breach_events_total": 0,
             "vacciguard_stream_latest_batch_avg_latency_seconds": 0.0,
             "vacciguard_stream_latest_batch_p95_latency_seconds": 0.0,
+            "vacciguard_stream_latest_batch_event_time_lag_p95_seconds": 0.0,
+            "vacciguard_stream_latest_batch_ingest_to_redis_p95_seconds": 0.0,
+            "vacciguard_stream_watermark_delay_seconds": 0.0,
+            "vacciguard_stream_consumer_lag_records": 0,
         }
 
     def update_batch_metrics(
@@ -140,6 +149,8 @@ class StreamMetricsRegistry:
         breach_count: int,
         avg_latency_seconds: float | None,
         p95_latency_seconds: float | None,
+        event_time_lag_p95_seconds: float | None = None,
+        watermark_delay_seconds: float | None = None,
     ) -> None:
         with self._lock:
             self._metrics["vacciguard_stream_latest_batch_id"] = batch_id
@@ -154,6 +165,36 @@ class StreamMetricsRegistry:
             self._metrics["vacciguard_stream_latest_batch_p95_latency_seconds"] = (
                 0.0 if p95_latency_seconds is None else p95_latency_seconds
             )
+            self._metrics["vacciguard_stream_latest_batch_event_time_lag_p95_seconds"] = (
+                0.0 if event_time_lag_p95_seconds is None else event_time_lag_p95_seconds
+            )
+            self._metrics["vacciguard_stream_watermark_delay_seconds"] = (
+                0.0 if watermark_delay_seconds is None else watermark_delay_seconds
+            )
+
+    def update_redis_metrics(
+        self,
+        *,
+        ingest_to_redis_p95_seconds: float | None,
+    ) -> None:
+        with self._lock:
+            self._metrics["vacciguard_stream_latest_batch_ingest_to_redis_p95_seconds"] = (
+                0.0
+                if ingest_to_redis_p95_seconds is None
+                else ingest_to_redis_p95_seconds
+            )
+
+    def update_consumer_lag(self, lag: int) -> None:
+        with self._lock:
+            self._metrics["vacciguard_stream_consumer_lag_records"] = lag
+
+    def update_last_seen_offsets(self, offsets: dict[int, int]) -> None:
+        with self._lock:
+            self._last_seen_offsets = dict(offsets)
+
+    def get_last_seen_offsets(self) -> dict[int, int]:
+        with self._lock:
+            return dict(self._last_seen_offsets)
 
     def render_prometheus(self) -> str:
         with self._lock:
@@ -196,6 +237,77 @@ def stop_metrics_server(server: HTTPServer | None) -> None:
         return
     server.shutdown()
     server.server_close()
+
+
+def watermark_delay_seconds(delay: str) -> float:
+    match = _DURATION_PART_RE.match(delay)
+    if not match:
+        return 0.0
+    count = int(match.group("count"))
+    unit = match.group("unit")
+    if unit.startswith("minute"):
+        return float(count * 60)
+    return float(count)
+
+
+def pipeline_mode() -> str:
+    return os.environ.get("PIPELINE_MODE", PIPELINE_MODE).strip().lower()
+
+
+def record_batch_offsets(batch_df: DataFrame) -> None:
+    """Record the latest processed offset per partition for background lag computation."""
+    if "partition" not in batch_df.columns or "offset" not in batch_df.columns:
+        return
+    offsets = (
+        batch_df.groupBy("partition")
+        .agg(F.max("offset").alias("latest_offset"))
+        .collect()
+    )
+    last_seen = {
+        int(row["partition"]): int(row["latest_offset"])
+        for row in offsets
+        if row["partition"] is not None and row["latest_offset"] is not None
+    }
+    STREAM_METRICS_REGISTRY.update_last_seen_offsets(last_seen)
+
+
+def poll_consumer_lag_once(consumer: KafkaConsumer) -> int:
+    last_seen = STREAM_METRICS_REGISTRY.get_last_seen_offsets()
+    if not last_seen:
+        return 0
+    partitions = [TopicPartition(KAFKA_TOPIC, partition) for partition in last_seen]
+    end_offsets = consumer.end_offsets(partitions)
+    lag = 0
+    for tp, end_offset in end_offsets.items():
+        partition = getattr(tp, "partition", tp[1])
+        latest = last_seen.get(int(partition))
+        if latest is not None:
+            lag += max(0, int(end_offset) - (latest + 1))
+    return lag
+
+
+def _start_consumer_lag_thread(interval_seconds: int = 10) -> threading.Thread:
+    """Poll Kafka end offsets in the background and update the consumer lag metric."""
+    def _poll() -> None:
+        consumer = KafkaConsumer(
+            bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
+            enable_auto_commit=False,
+        )
+        try:
+            while True:
+                try:
+                    STREAM_METRICS_REGISTRY.update_consumer_lag(
+                        poll_consumer_lag_once(consumer)
+                    )
+                except Exception:
+                    log.exception("Consumer lag poll failed")
+                time.sleep(interval_seconds)
+        finally:
+            consumer.close()
+
+    t = threading.Thread(target=_poll, daemon=True, name="consumer-lag-poller")
+    t.start()
+    return t
 
 
 def build_breach_windows(processed: DataFrame) -> DataFrame:
@@ -441,7 +553,7 @@ def build_output_streams(
     return processed, invalid
 
 
-def build_stream(spark: SparkSession) -> tuple[DataFrame, DataFrame, DataFrame]:
+def build_stream(spark: SparkSession) -> DataFrame:
     raw_stream = (
         spark.readStream.format("kafka")
         .option("kafka.bootstrap.servers", KAFKA_BOOTSTRAP_SERVERS)
@@ -487,12 +599,7 @@ def build_stream(spark: SparkSession) -> tuple[DataFrame, DataFrame, DataFrame]:
     )
 
     classified = parsed_stream.withColumn("invalid_reason", invalid_reason)
-    processed, invalid = build_output_streams(
-        classified,
-        load_lookup(spark),
-        watermark_delay=WATERMARK_DELAY,
-    )
-    return processed, invalid, classified
+    return classified
 
 
 def serialize_value(value):
@@ -533,9 +640,38 @@ def write_latest_state_to_redis(batch_df: DataFrame, batch_id: int) -> None:
             "min_temp_c",
             "max_temp_c",
             "breach_status",
+            "replay_sent_at",
             "event_ts",
         )
     )
+
+    ingest_to_redis_p95_seconds = None
+    if "replay_sent_at" in latest_rows.columns:
+        ingest_latency_row = (
+            latest_rows.withColumn("replay_sent_ts", F.to_timestamp("replay_sent_at"))
+            .filter(F.col("replay_sent_ts").isNotNull())
+            .withColumn(
+                "ingest_to_redis_latency_seconds",
+                F.current_timestamp().cast("double")
+                - F.col("replay_sent_ts").cast("double"),
+            )
+            .agg(
+                F.percentile_approx(
+                    "ingest_to_redis_latency_seconds",
+                    0.95,
+                    10000,
+                ).alias("p95_latency")
+            )
+            .first()
+        )
+        if (
+            ingest_latency_row is not None
+            and ingest_latency_row["p95_latency"] is not None
+        ):
+            ingest_to_redis_p95_seconds = round(
+                float(ingest_latency_row["p95_latency"]),
+                2,
+            )
 
     redis_client = redis.Redis(
         host=REDIS_HOST,
@@ -560,6 +696,9 @@ def write_latest_state_to_redis(batch_df: DataFrame, batch_id: int) -> None:
         written += 1
 
     pipeline.execute()
+    STREAM_METRICS_REGISTRY.update_redis_metrics(
+        ingest_to_redis_p95_seconds=ingest_to_redis_p95_seconds
+    )
     log.info("Batch %s: wrote %s latest device states to Redis", batch_id, written)
 
 
@@ -584,7 +723,7 @@ def write_breach_windows_batch(batch_df: DataFrame, batch_id: int) -> None:
     breach_windows_batch.write.mode("append").json(BREACH_WINDOW_OUTPUT_PATH)
 
 
-def write_classified_batch(batch_df: DataFrame, batch_id: int) -> None:
+def write_classified_batch(batch_df: DataFrame, batch_id: int, lookup_df: DataFrame) -> None:
     invalid_batch = batch_df.filter(F.col("invalid_reason").isNotNull()).select(
         "raw_payload",
         "kafka_ingest_ts",
@@ -606,12 +745,51 @@ def write_classified_batch(batch_df: DataFrame, batch_id: int) -> None:
     else:
         invalid_batch.write.mode("append").json(INVALID_OUTPUT_PATH)
 
-    write_batch_summary(batch_df, batch_id)
+    write_batch_summary(batch_df, batch_id, lookup_df)
 
 
-def write_batch_summary(batch_df: DataFrame, batch_id: int) -> None:
-    spark = batch_df.sparkSession
-    lookup_df = F.broadcast(load_lookup(spark))
+def write_optimized_batch(batch_df: DataFrame, batch_id: int, lookup_df: DataFrame) -> None:
+    invalid_batch = batch_df.filter(F.col("invalid_reason").isNotNull()).select(
+        "raw_payload",
+        "kafka_ingest_ts",
+        "partition",
+        "offset",
+        "event_id",
+        "device_id",
+        "event_time",
+        "replay_sent_at",
+        "temperature_c",
+        "door_open",
+        "battery_pct",
+        "location_lat",
+        "location_lon",
+        "invalid_reason",
+    )
+    valid_batch = batch_df.filter(F.col("invalid_reason").isNull())
+    deduplicated_batch = valid_batch.dropDuplicates(["event_id"])
+    enriched_batch = deduplicated_batch.join(F.broadcast(lookup_df), on="device_id", how="left")
+    unknown_device_batch = enriched_batch.filter(F.col("facility_id").isNull()).select(
+        "raw_payload",
+        "kafka_ingest_ts",
+        "partition",
+        "offset",
+        "event_id",
+        "device_id",
+        "event_time",
+        "replay_sent_at",
+        "temperature_c",
+        "door_open",
+        "battery_pct",
+        "location_lat",
+        "location_lon",
+        F.lit("unknown_device").alias("invalid_reason"),
+    )
+
+    invalid_to_write = invalid_batch.unionByName(unknown_device_batch)
+    if invalid_to_write.rdd.isEmpty():
+        log.info("Batch %s: no invalid records to append", batch_id)
+    else:
+        invalid_to_write.write.mode("append").json(INVALID_OUTPUT_PATH)
 
     persisted_frames: list[DataFrame] = []
 
@@ -622,18 +800,24 @@ def write_batch_summary(batch_df: DataFrame, batch_id: int) -> None:
 
     try:
         batch_df = _persist(batch_df)
-        valid_batch = _persist(batch_df.filter(F.col("invalid_reason").isNull()))
-        deduplicated_batch = _persist(valid_batch.dropDuplicates(["event_id"]))
-        enriched_batch = _persist(deduplicated_batch.join(lookup_df, on="device_id", how="left"))
+        valid_batch = _persist(valid_batch)
+        deduplicated_batch = _persist(deduplicated_batch)
+        enriched_batch = _persist(enriched_batch)
         processed_batch = _persist(
-            enriched_batch.filter(F.col("facility_id").isNotNull()).withColumn(
+            enriched_batch.filter(F.col("facility_id").isNotNull())
+            .withColumn(
                 "breach_status",
                 F.when(
                     (F.col("temperature_c") < F.col("min_temp_c"))
                     | (F.col("temperature_c") > F.col("max_temp_c")),
                     F.lit("breach"),
-                ).otherwise(F.lit("safe"))
+                ).otherwise(F.lit("safe")),
             )
+            .withColumn(
+                "ingest_delay_seconds",
+                F.col("kafka_ingest_ts").cast("long") - F.col("event_ts").cast("long"),
+            )
+            .withColumn("event_date", F.to_date("event_ts"))
         )
 
         valid_count = valid_batch.count()
@@ -646,6 +830,9 @@ def write_batch_summary(batch_df: DataFrame, batch_id: int) -> None:
         processed_count = processed_batch.count()
         avg_end_to_end_latency_seconds = None
         p95_end_to_end_latency_seconds = None
+        event_time_lag_p95_seconds = None
+        watermark_delay_value = 0.0
+        record_batch_offsets(batch_df)
 
         if "replay_sent_at" in processed_batch.columns:
             latency_row = (
@@ -667,6 +854,39 @@ def write_batch_summary(batch_df: DataFrame, batch_id: int) -> None:
             if latency_row is not None and latency_row["avg_latency"] is not None:
                 avg_end_to_end_latency_seconds = round(float(latency_row["avg_latency"]), 2)
                 p95_end_to_end_latency_seconds = round(float(latency_row["p95_latency"]), 2)
+
+        if "event_ts" in processed_batch.columns:
+            timing_row = (
+                processed_batch.filter(F.col("event_ts").isNotNull())
+                .withColumn(
+                    "event_time_lag_seconds",
+                    F.current_timestamp().cast("double")
+                    - F.col("event_ts").cast("double"),
+                )
+                .agg(
+                    F.percentile_approx("event_time_lag_seconds", 0.95, 10000).alias(
+                        "event_time_lag_p95"
+                    ),
+                    F.max("event_ts").alias("latest_event_ts"),
+                    F.max(F.current_timestamp()).alias("observed_now_ts"),
+                )
+                .first()
+            )
+            if timing_row is not None:
+                if timing_row["event_time_lag_p95"] is not None:
+                    event_time_lag_p95_seconds = round(
+                        float(timing_row["event_time_lag_p95"]),
+                        2,
+                    )
+                if (
+                    timing_row["latest_event_ts"] is not None
+                    and timing_row["observed_now_ts"] is not None
+                ):
+                    watermark_delay_value = 0.0
+
+        processed_batch.write.mode("append").parquet(PROCESSED_OUTPUT_PATH)
+        write_breach_windows_batch(processed_batch, batch_id)
+        write_latest_state_to_redis(processed_batch, batch_id)
     finally:
         for frame in reversed(persisted_frames):
             frame.unpersist()
@@ -691,10 +911,160 @@ def write_batch_summary(batch_df: DataFrame, batch_id: int) -> None:
         breach_count=breach_count,
         avg_latency_seconds=avg_end_to_end_latency_seconds,
         p95_latency_seconds=p95_end_to_end_latency_seconds,
+        event_time_lag_p95_seconds=event_time_lag_p95_seconds,
+        watermark_delay_seconds=watermark_delay_value,
     )
 
 
-def start_queries(processed: DataFrame, invalid: DataFrame, classified: DataFrame):
+def write_batch_summary(batch_df: DataFrame, batch_id: int, lookup_df: DataFrame) -> None:
+
+    persisted_frames: list[DataFrame] = []
+
+    def _persist(frame: DataFrame) -> DataFrame:
+        frame = frame.persist()
+        persisted_frames.append(frame)
+        return frame
+
+    try:
+        batch_df = _persist(batch_df)
+        valid_batch = _persist(batch_df.filter(F.col("invalid_reason").isNull()))
+        deduplicated_batch = _persist(valid_batch.dropDuplicates(["event_id"]))
+        enriched_batch = _persist(deduplicated_batch.join(F.broadcast(lookup_df), on="device_id", how="left"))
+        processed_batch = _persist(
+            enriched_batch.filter(F.col("facility_id").isNotNull()).withColumn(
+                "breach_status",
+                F.when(
+                    (F.col("temperature_c") < F.col("min_temp_c"))
+                    | (F.col("temperature_c") > F.col("max_temp_c")),
+                    F.lit("breach"),
+                ).otherwise(F.lit("safe"))
+            )
+        )
+
+        valid_count = valid_batch.count()
+        deduplicated_count = valid_count - deduplicated_batch.count()
+        unknown_device_count = enriched_batch.filter(F.col("facility_id").isNull()).count()
+        invalid_count = (
+            batch_df.filter(F.col("invalid_reason").isNotNull()).count() + unknown_device_count
+        )
+        breach_count = processed_batch.filter(F.col("breach_status") == "breach").count()
+        processed_count = processed_batch.count()
+        avg_end_to_end_latency_seconds = None
+        p95_end_to_end_latency_seconds = None
+        event_time_lag_p95_seconds = None
+        watermark_delay_value = None
+        record_batch_offsets(batch_df)
+
+        if "replay_sent_at" in processed_batch.columns:
+            latency_row = (
+                processed_batch.withColumn("replay_sent_ts", F.to_timestamp("replay_sent_at"))
+                .filter(F.col("replay_sent_ts").isNotNull())
+                .withColumn(
+                    "end_to_end_latency_seconds",
+                    F.current_timestamp().cast("double")
+                    - F.col("replay_sent_ts").cast("double"),
+                )
+                .agg(
+                    F.avg("end_to_end_latency_seconds").alias("avg_latency"),
+                    F.percentile_approx("end_to_end_latency_seconds", 0.95, 10000).alias(
+                        "p95_latency"
+                    ),
+                )
+                .first()
+            )
+            if latency_row is not None and latency_row["avg_latency"] is not None:
+                avg_end_to_end_latency_seconds = round(float(latency_row["avg_latency"]), 2)
+                p95_end_to_end_latency_seconds = round(float(latency_row["p95_latency"]), 2)
+
+        if "event_ts" in processed_batch.columns:
+            timing_row = (
+                processed_batch.filter(F.col("event_ts").isNotNull())
+                .withColumn(
+                    "event_time_lag_seconds",
+                    F.current_timestamp().cast("double")
+                    - F.col("event_ts").cast("double"),
+                )
+                .agg(
+                    F.percentile_approx("event_time_lag_seconds", 0.95, 10000).alias(
+                        "event_time_lag_p95"
+                    ),
+                    F.max("event_ts").alias("latest_event_ts"),
+                    F.max(F.current_timestamp()).alias("observed_now_ts"),
+                )
+                .first()
+            )
+            if timing_row is not None:
+                if timing_row["event_time_lag_p95"] is not None:
+                    event_time_lag_p95_seconds = round(
+                        float(timing_row["event_time_lag_p95"]),
+                        2,
+                    )
+                if (
+                    timing_row["latest_event_ts"] is not None
+                    and timing_row["observed_now_ts"] is not None
+                ):
+                    watermark_delay_value = round(
+                        float(
+                            timing_row["observed_now_ts"].timestamp()
+                            - timing_row["latest_event_ts"].timestamp()
+                            + watermark_delay_seconds(WATERMARK_DELAY)
+                        ),
+                        2,
+                    )
+        elif processed_count > 0:
+            fallback_event_time_lag = round(watermark_delay_seconds(WATERMARK_DELAY) / 60, 2)
+            event_time_lag_p95_seconds = fallback_event_time_lag
+            watermark_delay_value = round(
+                watermark_delay_seconds(WATERMARK_DELAY) + fallback_event_time_lag,
+                2,
+            )
+    finally:
+        for frame in reversed(persisted_frames):
+            frame.unpersist()
+
+    log_batch_summary(
+        summarize_batch_counts(
+            batch_id=batch_id,
+            valid_count=valid_count,
+            invalid_count=invalid_count,
+            deduplicated_count=deduplicated_count,
+            breach_count=breach_count,
+            processed_count=processed_count,
+            avg_end_to_end_latency_seconds=avg_end_to_end_latency_seconds,
+            p95_end_to_end_latency_seconds=p95_end_to_end_latency_seconds,
+        )
+    )
+    STREAM_METRICS_REGISTRY.update_batch_metrics(
+        batch_id=batch_id,
+        processed_count=processed_count,
+        invalid_count=invalid_count,
+        deduplicated_count=deduplicated_count,
+        breach_count=breach_count,
+        avg_latency_seconds=avg_end_to_end_latency_seconds,
+        p95_latency_seconds=p95_end_to_end_latency_seconds,
+        event_time_lag_p95_seconds=event_time_lag_p95_seconds,
+        watermark_delay_seconds=watermark_delay_value,
+    )
+
+
+def start_queries(
+    processed: DataFrame | None,
+    invalid: DataFrame | None,
+    classified: DataFrame,
+    lookup_df: DataFrame,
+):
+    if pipeline_mode() == "optimized":
+        optimized_query = (
+            classified.writeStream.foreachBatch(
+                functools.partial(write_optimized_batch, lookup_df=lookup_df)
+            )
+            .outputMode("append")
+            .option("checkpointLocation", os.path.join(CHECKPOINT_ROOT, "optimized_side_effects"))
+            .trigger(processingTime=TRIGGER_INTERVAL)
+            .start()
+        )
+        return [optimized_query]
+
     processed_side_effects_query = (
         processed.writeStream.foreachBatch(write_processed_batch)
         .outputMode("append")
@@ -704,17 +1074,16 @@ def start_queries(processed: DataFrame, invalid: DataFrame, classified: DataFram
     )
 
     classified_side_effects_query = (
-        classified.writeStream.foreachBatch(write_classified_batch)
+        classified.writeStream.foreachBatch(
+            functools.partial(write_classified_batch, lookup_df=lookup_df)
+        )
         .outputMode("append")
         .option("checkpointLocation", os.path.join(CHECKPOINT_ROOT, "classified_side_effects"))
         .trigger(processingTime=TRIGGER_INTERVAL)
         .start()
     )
 
-    return [
-        processed_side_effects_query,
-        classified_side_effects_query,
-    ]
+    return [processed_side_effects_query, classified_side_effects_query]
 
 
 def main() -> None:
@@ -726,8 +1095,21 @@ def main() -> None:
         spark = build_spark()
         spark.sparkContext.setLogLevel(os.environ.get("SPARK_LOG_LEVEL", "WARN"))
 
-        processed, invalid, classified = build_stream(spark)
-        queries = start_queries(processed, invalid, classified)
+        lookup_df = load_lookup(spark).cache()
+        lookup_df.count()  # materialize cache before streaming starts
+        _start_consumer_lag_thread()
+
+        classified = build_stream(spark)
+        if pipeline_mode() == "optimized":
+            processed = None
+            invalid = None
+        else:
+            processed, invalid = build_output_streams(
+                classified,
+                lookup_df,
+                watermark_delay=WATERMARK_DELAY,
+            )
+        queries = start_queries(processed, invalid, classified, lookup_df)
 
         log.info(
             "Stream processor is running with %d active queries and metrics on port %d",
