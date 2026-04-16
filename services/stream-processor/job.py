@@ -45,6 +45,7 @@ APP_NAME = os.environ.get("APP_NAME", "vacciguard-stream-processor")
 KAFKA_BOOTSTRAP_SERVERS = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
 KAFKA_TOPIC = os.environ.get("KAFKA_TOPIC", "vacciguard-telemetry")
 KAFKA_STARTING_OFFSETS = os.environ.get("KAFKA_STARTING_OFFSETS", "earliest")
+MAX_OFFSETS_PER_TRIGGER = os.environ.get("MAX_OFFSETS_PER_TRIGGER")
 LOOKUP_FILE = os.environ.get(
     "LOOKUP_FILE", "/data/reference/device-facility-lookup-template.csv"
 )
@@ -544,7 +545,7 @@ def build_output_streams(
         )
         .withColumn(
             "ingest_delay_seconds",
-            F.col("kafka_ingest_ts").cast("long") - F.col("event_ts").cast("long"),
+            F.col("kafka_ingest_ts").cast("double") - F.col("event_ts").cast("double"),
         )
         .withColumn("event_date", F.to_date("event_ts"))
     )
@@ -560,8 +561,10 @@ def build_stream(spark: SparkSession) -> DataFrame:
         .option("subscribe", KAFKA_TOPIC)
         .option("startingOffsets", KAFKA_STARTING_OFFSETS)
         .option("failOnDataLoss", "false")
-        .load()
     )
+    if MAX_OFFSETS_PER_TRIGGER:
+        raw_stream = raw_stream.option("maxOffsetsPerTrigger", MAX_OFFSETS_PER_TRIGGER)
+    raw_stream = raw_stream.load()
 
     parsed_stream = raw_stream.select(
         F.col("timestamp").alias("kafka_ingest_ts"),
@@ -815,7 +818,7 @@ def write_optimized_batch(batch_df: DataFrame, batch_id: int, lookup_df: DataFra
             )
             .withColumn(
                 "ingest_delay_seconds",
-                F.col("kafka_ingest_ts").cast("long") - F.col("event_ts").cast("long"),
+                F.col("kafka_ingest_ts").cast("double") - F.col("event_ts").cast("double"),
             )
             .withColumn("event_date", F.to_date("event_ts"))
         )

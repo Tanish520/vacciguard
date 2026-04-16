@@ -28,6 +28,9 @@ cleanup_output
 echo "[3/5] Starting Kafka, Redis, and stream processor"
 docker compose up -d --build kafka redis stream-processor
 
+echo "[3b/5] Building replay producer"
+docker compose build replay-producer
+
 echo "[4/5] Replaying workload"
 docker compose run --rm replay-producer
 

@@ -174,6 +174,7 @@ def patch_pipeline_config(contract: controller.RunContract) -> None:
         pipeline_mode=contract.pipeline_target,
         trigger_interval=data["TRIGGER_INTERVAL"],
         watermark_delay=data["WATERMARK_DELAY"],
+        max_offsets_per_trigger=data.get("MAX_OFFSETS_PER_TRIGGER"),
         redis_host=data["REDIS_HOST"],
         redis_port=data["REDIS_PORT"],
         redis_db=data["REDIS_DB"],

@@ -5,6 +5,7 @@ metadata:
   namespace: vacciguard
 data:
   PIPELINE_MODE: optimized
+  MAX_OFFSETS_PER_TRIGGER: "2000"
   TRIGGER_INTERVAL: 1 seconds
   WATERMARK_DELAY: 30 seconds
   CHECKPOINT_ROOT: /data/checkpoints

@@ -51,6 +51,22 @@ class AwsNativeEvaluationManifestTests(unittest.TestCase):
         self.assertIn('--pod-running-timeout="$POD_RUNNING_TIMEOUT"', raw)
         self.assertNotIn("--from=job/evaluation-controller", raw)
 
+    def test_baseline_wrapper_delegates_to_controller_and_downloads_report(self):
+        raw = (ROOT / "scripts/run-aws-baseline-evaluation.sh").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn(
+            'bash scripts/run-aws-evaluation-controller.sh baseline "$SCENARIO" "$RUN_ID"',
+            raw,
+        )
+        self.assertIn("WORKLOAD_DURATION_MINUTES", raw)
+        self.assertIn("WORKLOAD_FAMILY_VERSION", raw)
+        self.assertIn("S3_BUCKET_NAME", raw)
+        self.assertIn("aws s3 cp", raw)
+        self.assertIn("report.md", raw)
+        self.assertIn("artifacts/aws-baseline-evaluations/${RUN_ID}.md", raw)
+
     def test_build_and_push_helper_targets_linux_amd64(self):
         raw = (
             ROOT / "scripts/build-and-push-evaluation-controller.sh"
@@ -73,6 +89,7 @@ class AwsNativeEvaluationManifestTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
         self.assertIn("TRIGGER_INTERVAL: 2 seconds", configmap_raw)
+        self.assertIn('MAX_OFFSETS_PER_TRIGGER: "400"', configmap_raw)
         self.assertIn('SPARK_SQL_SHUFFLE_PARTITIONS: "8"', configmap_raw)
         self.assertIn('SPARK_DEFAULT_PARALLELISM: "8"', configmap_raw)
         self.assertIn("PIPELINE_MODE: baseline", configmap_raw)
@@ -84,3 +101,12 @@ class AwsNativeEvaluationManifestTests(unittest.TestCase):
         self.assertIn('memory: "1536Mi"', kafka_patch_raw)
         self.assertIn('cpu: "1500m"', kafka_patch_raw)
         self.assertIn('memory: "3Gi"', kafka_patch_raw)
+
+    def test_optimized_overlay_sets_a_higher_kafka_batch_cap(self):
+        configmap_raw = (
+            ROOT / "infra/kubernetes/optimized/configmap-pipeline.yaml"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("TRIGGER_INTERVAL: 1 seconds", configmap_raw)
+        self.assertIn('MAX_OFFSETS_PER_TRIGGER: "2000"', configmap_raw)
+        self.assertIn("PIPELINE_MODE: optimized", configmap_raw)

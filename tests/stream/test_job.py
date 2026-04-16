@@ -102,6 +102,31 @@ class SparkRuntimeConfigTests(unittest.TestCase):
         self.assertEqual(conf["spark.streaming.stopGracefullyOnShutdown"], "true")
 
 
+class KafkaSourceConfigTests(unittest.TestCase):
+    def test_build_stream_uses_max_offsets_per_trigger_when_configured(self):
+        reader = Mock()
+        stream = Mock()
+        reader.format.return_value = reader
+        reader.option.return_value = reader
+        reader.load.return_value = stream
+        stream.select.return_value = stream
+        stream.withColumn.return_value = stream
+
+        session = SparkSession.builder.master("local[1]").appName(
+            "kafka-source-config-tests"
+        ).getOrCreate()
+        spark = Mock()
+        spark.readStream = reader
+
+        try:
+            with patch.object(stream_job, "MAX_OFFSETS_PER_TRIGGER", "400"):
+                stream_job.build_stream(spark)
+        finally:
+            session.stop()
+
+        reader.option.assert_any_call("maxOffsetsPerTrigger", "400")
+
+
 class BatchSummaryLoggingTests(unittest.TestCase):
     def test_log_batch_summary_formats_message_without_mapping_errors(self):
         summary = stream_job.summarize_batch_counts(
@@ -901,71 +926,71 @@ class OptimizedBatchWriteTests(unittest.TestCase):
             [
                 {
                     "raw_payload": '{"event_id":"evt-001"}',
-                    "kafka_ingest_ts": "2026-04-08T12:00:02Z",
+                    "kafka_ingest_ts": "2026-04-08T12:00:02.500Z",
                     "partition": 0,
                     "offset": 1,
                     "event_id": "evt-001",
                     "device_id": "FR-0102",
-                    "event_time": "2026-04-08T12:00:00Z",
+                    "event_time": "2026-04-08T12:00:00.000Z",
                     "replay_sent_at": "2026-04-08T12:00:06Z",
-                    "temperature_c": 4.0,
+                    "temperature_c": 4.5,
                     "door_open": False,
                     "battery_pct": 88,
                     "location_lat": 24.5854,
                     "location_lon": 73.7125,
                     "invalid_reason": None,
-                    "event_ts": "2026-04-08T12:00:00Z",
+                    "event_ts": "2026-04-08T12:00:00.000Z",
                 },
                 {
                     "raw_payload": '{"event_id":"evt-001"}',
-                    "kafka_ingest_ts": "2026-04-08T12:00:03Z",
+                    "kafka_ingest_ts": "2026-04-08T12:00:03.500Z",
                     "partition": 0,
                     "offset": 2,
                     "event_id": "evt-001",
                     "device_id": "FR-0102",
-                    "event_time": "2026-04-08T12:00:00Z",
+                    "event_time": "2026-04-08T12:00:00.000Z",
                     "replay_sent_at": "2026-04-08T12:00:06Z",
-                    "temperature_c": 4.0,
+                    "temperature_c": 4.5,
                     "door_open": False,
                     "battery_pct": 88,
                     "location_lat": 24.5854,
                     "location_lon": 73.7125,
                     "invalid_reason": None,
-                    "event_ts": "2026-04-08T12:00:00Z",
+                    "event_ts": "2026-04-08T12:00:00.000Z",
                 },
                 {
                     "raw_payload": '{"event_id":"evt-002"}',
-                    "kafka_ingest_ts": "2026-04-08T12:00:04Z",
+                    "kafka_ingest_ts": "2026-04-08T12:00:04.500Z",
                     "partition": 0,
                     "offset": 3,
                     "event_id": "evt-002",
                     "device_id": "FR-9999",
-                    "event_time": "2026-04-08T12:00:01Z",
+                    "event_time": "2026-04-08T12:00:01.000Z",
                     "replay_sent_at": "2026-04-08T12:00:07Z",
-                    "temperature_c": 4.0,
+                    "temperature_c": 4.5,
                     "door_open": False,
                     "battery_pct": 88,
                     "location_lat": 24.5854,
                     "location_lon": 73.7125,
                     "invalid_reason": None,
-                    "event_ts": "2026-04-08T12:00:01Z",
+                    "event_ts": "2026-04-08T12:00:01.000Z",
                 },
                 {
                     "raw_payload": '{"event_id":"evt-003"}',
-                    "kafka_ingest_ts": "2026-04-08T12:00:05Z",
+                    "kafka_ingest_ts": "2026-04-08T12:00:05.500Z",
                     "partition": 0,
                     "offset": 4,
                     "event_id": "evt-003",
                     "device_id": None,
-                    "event_time": "2026-04-08T12:00:02Z",
+                    "event_time": "2026-04-08T12:00:02.000Z",
                     "replay_sent_at": None,
-                    "temperature_c": 4.0,
+                    "temperature_c": 4.5,
                     "door_open": False,
                     "battery_pct": 88,
                     "location_lat": 24.5854,
                     "location_lon": 73.7125,
                     "invalid_reason": "missing_device_id",
-                    "event_ts": "2026-04-08T12:00:02Z",
+                    "event_ts": "2026-04-08T12:00:02.000Z",
                 },
             ]
         ).withColumn("kafka_ingest_ts", F.to_timestamp("kafka_ingest_ts")).withColumn(
@@ -991,10 +1016,15 @@ class OptimizedBatchWriteTests(unittest.TestCase):
         ):
             stream_job.write_optimized_batch(batch_df, batch_id=21, lookup_df=lookup_df)
             processed_count = self.spark.read.parquet(processed_dir).count()
+            processed_df = self.spark.read.parquet(processed_dir)
+            processed_schema = processed_df.schema
+            processed_delay = processed_df.select("ingest_delay_seconds").first()[0]
             invalid_count = self.spark.read.json(invalid_dir).count()
             breach_count = self.spark.read.json(breach_dir).count()
 
         self.assertEqual(processed_count, 1)
+        self.assertEqual(processed_schema["ingest_delay_seconds"].dataType, T.DoubleType())
+        self.assertAlmostEqual(processed_delay, 2.5, places=6)
         self.assertEqual(invalid_count, 2)
         self.assertGreaterEqual(breach_count, 1)
         mock_redis_write.assert_called_once()
