@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: vacciguard-pipeline-config
+  name: vacciguard-pipeline-hot
 data:
   APP_NAME: vacciguard-stream-processor
   KAFKA_TOPIC: vacciguard-telemetry
@@ -9,10 +9,9 @@ data:
   REDIS_HOST: 172.31.23.223
   REDIS_PORT: "6379"
   REDIS_DB: "0"
+  KAFKA_CONSUMER_GROUP_ID: vacciguard-pipeline-hot
   KAFKA_STARTING_OFFSETS: earliest
   MAX_OFFSETS_PER_TRIGGER: "1000"
-  COLD_MAX_OFFSETS_PER_TRIGGER: ""
-  TRIGGER_INTERVAL: 2 seconds
-  COLD_TRIGGER_INTERVAL: 30 seconds
+  TRIGGER_INTERVAL: 5 seconds
   WATERMARK_DELAY: 10 minutes
   PIPELINE_MODE: baseline
