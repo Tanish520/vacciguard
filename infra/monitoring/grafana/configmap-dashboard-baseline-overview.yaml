@@ -9,40 +9,529 @@ data:
       "title": "VacciGuard Baseline Overview",
       "uid": "vacciguard-baseline-overview",
       "schemaVersion": 39,
-      "version": 2,
-      "refresh": "30s",
+      "version": 4,
+      "refresh": "15s",
       "panels": [
         {
           "id": 1,
-          "title": "Replay Sent Events",
+          "title": "Avg Latency (s)",
           "type": "stat",
-          "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+          "gridPos": {
+            "h": 4,
+            "w": 4,
+            "x": 0,
+            "y": 0
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "unit": "s",
+              "decimals": 2,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "yellow",
+                    "value": 5
+                  },
+                  {
+                    "color": "red",
+                    "value": 8
+                  }
+                ]
+              },
+              "custom": {}
+            },
+            "overrides": []
+          },
+          "description": "Average batch latency over the selected window.",
+          "options": {
+            "colorMode": "background",
+            "graphMode": "none",
+            "justifyMode": "center",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "value_and_name"
+          },
           "targets": [
             {
               "datasource": "Prometheus",
-              "expr": "sum(vacciguard_replay_sent_events_total)",
+              "expr": "avg_over_time(vacciguard_stream_latest_batch_avg_latency_seconds[$__range])",
               "refId": "A"
             }
           ]
         },
         {
           "id": 2,
-          "title": "Replay Completion Status",
+          "title": "P95 Latency (s)",
           "type": "stat",
-          "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+          "gridPos": {
+            "h": 4,
+            "w": 4,
+            "x": 4,
+            "y": 0
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "unit": "s",
+              "decimals": 2,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "yellow",
+                    "value": 5
+                  },
+                  {
+                    "color": "red",
+                    "value": 8
+                  }
+                ]
+              },
+              "custom": {}
+            },
+            "overrides": []
+          },
+          "description": "Average batch p95 latency over the selected window.",
+          "options": {
+            "colorMode": "background",
+            "graphMode": "none",
+            "justifyMode": "center",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "value_and_name"
+          },
           "targets": [
             {
               "datasource": "Prometheus",
-              "expr": "vacciguard_replay_completion_status and on(pod) topk(1, vacciguard_replay_run_started_timestamp_seconds)",
+              "expr": "avg_over_time(vacciguard_stream_latest_batch_p95_latency_seconds[$__range])",
               "refId": "A"
             }
           ]
         },
         {
           "id": 3,
-          "title": "Stream Processed Events",
+          "title": "P99 Latency (s)",
           "type": "stat",
-          "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+          "gridPos": {
+            "h": 4,
+            "w": 4,
+            "x": 8,
+            "y": 0
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "unit": "s",
+              "decimals": 2,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "yellow",
+                    "value": 5
+                  },
+                  {
+                    "color": "red",
+                    "value": 8
+                  }
+                ]
+              },
+              "custom": {}
+            },
+            "overrides": []
+          },
+          "description": "Average batch p99 latency over the selected window.",
+          "options": {
+            "colorMode": "background",
+            "graphMode": "none",
+            "justifyMode": "center",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "value_and_name"
+          },
+          "targets": [
+            {
+              "datasource": "Prometheus",
+              "expr": "avg_over_time(vacciguard_stream_latest_batch_p99_latency_seconds[$__range])",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "title": "Throughput (eps)",
+          "type": "stat",
+          "gridPos": {
+            "h": 4,
+            "w": 4,
+            "x": 12,
+            "y": 0
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "decimals": 1,
+              "custom": {},
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "red",
+                    "value": null
+                  },
+                  {
+                    "color": "yellow",
+                    "value": 50
+                  },
+                  {
+                    "color": "green",
+                    "value": 80
+                  }
+                ]
+              },
+              "color": {
+                "mode": "thresholds"
+              }
+            },
+            "overrides": []
+          },
+          "description": "Peak observed throughput during the selected window.",
+          "options": {
+            "colorMode": "background",
+            "graphMode": "none",
+            "justifyMode": "center",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "value_and_name"
+          },
+          "targets": [
+            {
+              "datasource": "Prometheus",
+              "expr": "max_over_time(vacciguard_stream_observed_throughput_eps[$__range])",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "title": "Consumer Lag",
+          "type": "stat",
+          "gridPos": {
+            "h": 4,
+            "w": 4,
+            "x": 16,
+            "y": 0
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "unit": "short",
+              "decimals": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "yellow",
+                    "value": 50
+                  },
+                  {
+                    "color": "red",
+                    "value": 1000
+                  }
+                ]
+              },
+              "custom": {}
+            },
+            "overrides": []
+          },
+          "description": "Peak consumer lag during the selected window.",
+          "options": {
+            "colorMode": "background",
+            "graphMode": "none",
+            "justifyMode": "center",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "value_and_name"
+          },
+          "targets": [
+            {
+              "datasource": "Prometheus",
+              "expr": "max_over_time(vacciguard_stream_consumer_lag_records[$__range])",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "id": 6,
+          "title": "Alerts Fired (run)",
+          "type": "stat",
+          "gridPos": {
+            "h": 4,
+            "w": 4,
+            "x": 20,
+            "y": 0
+          },
+          "description": "Counts firing-state transitions for the VacciGuard SLA alerts during the selected time range.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "unit": "short",
+              "decimals": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "yellow",
+                    "value": 1
+                  },
+                  {
+                    "color": "red",
+                    "value": 2
+                  }
+                ]
+              },
+              "custom": {}
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "background",
+            "graphMode": "none",
+            "justifyMode": "center",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "value_and_name"
+          },
+          "targets": [
+            {
+              "datasource": "Prometheus",
+              "expr": "sum(changes(ALERTS{alertstate=\"firing\", alertname=~\"HighLatency|ConsumerLagBuilding\"}[$__range]))",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "id": 7,
+          "title": "Cost / GB (est.)",
+          "type": "stat",
+          "gridPos": {
+            "h": 4,
+            "w": 4,
+            "x": 0,
+            "y": 4
+          },
+          "description": "Estimated from the selected window using a fixed hourly cluster cost and about 200 bytes per event.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "unit": "currencyUSD",
+              "decimals": 2,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "yellow",
+                    "value": 1
+                  },
+                  {
+                    "color": "red",
+                    "value": 2
+                  }
+                ]
+              },
+              "custom": {}
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "background",
+            "graphMode": "none",
+            "justifyMode": "center",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "value_and_name"
+          },
+          "targets": [
+            {
+              "datasource": "Prometheus",
+              "expr": "((0.196 * max_over_time(vacciguard_replay_duration_seconds[$__range]) / 3600) + 0.0005) / ((max_over_time(vacciguard_replay_sent_events_total[$__range]) * 200) / 1000000000)",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "id": 8,
+          "title": "Ingest-to-Redis P95 (s)",
+          "type": "stat",
+          "gridPos": {
+            "h": 4,
+            "w": 4,
+            "x": 4,
+            "y": 4
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "unit": "s",
+              "decimals": 2,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "yellow",
+                    "value": 5
+                  },
+                  {
+                    "color": "red",
+                    "value": 8
+                  }
+                ]
+              },
+              "custom": {}
+            },
+            "overrides": []
+          },
+          "description": "Average batch ingest-to-Redis p95 over the selected window.",
+          "options": {
+            "colorMode": "background",
+            "graphMode": "none",
+            "justifyMode": "center",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "value_and_name"
+          },
+          "targets": [
+            {
+              "datasource": "Prometheus",
+              "expr": "avg_over_time(vacciguard_stream_latest_batch_ingest_to_redis_p95_seconds[$__range])",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "id": 9,
+          "title": "Processed Events",
+          "type": "stat",
+          "gridPos": {
+            "h": 4,
+            "w": 4,
+            "x": 8,
+            "y": 4
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "decimals": 0
+            },
+            "overrides": []
+          },
+          "description": "Latest cumulative count in the selected window.",
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "center",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "value_and_name"
+          },
           "targets": [
             {
               "datasource": "Prometheus",
@@ -52,66 +541,374 @@ data:
           ]
         },
         {
-          "id": 4,
-          "title": "Stream Invalid Events",
+          "id": 10,
+          "title": "Invalid Rate (%)",
           "type": "stat",
-          "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+          "gridPos": {
+            "h": 4,
+            "w": 4,
+            "x": 12,
+            "y": 4
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "unit": "percent",
+              "decimals": 2,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "yellow",
+                    "value": 1
+                  },
+                  {
+                    "color": "red",
+                    "value": 5
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "description": "Percentage of invalid events over processed + invalid events in the selected window.",
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "center",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "value_and_name"
+          },
           "targets": [
             {
               "datasource": "Prometheus",
-              "expr": "sum(vacciguard_stream_invalid_events_total)",
+              "expr": "100 * sum(vacciguard_stream_invalid_events_total) / clamp_min(sum(vacciguard_stream_processed_events_total) + sum(vacciguard_stream_invalid_events_total), 1)",
               "refId": "A"
             }
           ]
         },
         {
-          "id": 5,
-          "title": "Stream Deduplicated Events",
+          "id": 11,
+          "title": "Dedup Rate (%)",
           "type": "stat",
-          "gridPos": { "h": 4, "w": 6, "x": 0, "y": 4 },
+          "gridPos": {
+            "h": 4,
+            "w": 4,
+            "x": 16,
+            "y": 4
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "unit": "percent",
+              "decimals": 2,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "yellow",
+                    "value": 1
+                  },
+                  {
+                    "color": "red",
+                    "value": 5
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "description": "Percentage of deduplicated events over processed + invalid events in the selected window.",
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "center",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "value_and_name"
+          },
           "targets": [
             {
               "datasource": "Prometheus",
-              "expr": "sum(vacciguard_stream_deduplicated_events_total)",
+              "expr": "100 * sum(vacciguard_stream_deduplicated_events_total) / clamp_min(sum(vacciguard_stream_processed_events_total) + sum(vacciguard_stream_invalid_events_total), 1)",
               "refId": "A"
             }
           ]
         },
         {
-          "id": 6,
-          "title": "Stream Breach Events",
+          "id": 12,
+          "title": "Breach Rate (%)",
           "type": "stat",
-          "gridPos": { "h": 4, "w": 6, "x": 6, "y": 4 },
+          "gridPos": {
+            "h": 4,
+            "w": 4,
+            "x": 20,
+            "y": 4
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "unit": "percent",
+              "decimals": 2,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "yellow",
+                    "value": 1
+                  },
+                  {
+                    "color": "red",
+                    "value": 5
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "description": "Percentage of breach events over processed events in the selected window.",
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "center",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "value_and_name"
+          },
           "targets": [
             {
               "datasource": "Prometheus",
-              "expr": "sum(vacciguard_stream_breach_events_total)",
+              "expr": "100 * sum(vacciguard_stream_breach_events_total) / clamp_min(sum(vacciguard_stream_processed_events_total), 1)",
               "refId": "A"
             }
           ]
         },
         {
-          "id": 7,
-          "title": "Latest Batch Avg Latency",
-          "type": "stat",
-          "gridPos": { "h": 4, "w": 6, "x": 12, "y": 4 },
+          "id": 13,
+          "title": "Latency Trend",
+          "type": "timeseries",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 8
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 8,
+                "lineWidth": 2
+              },
+              "unit": "s"
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "single",
+              "sort": "none"
+            }
+          },
           "targets": [
             {
               "datasource": "Prometheus",
-              "expr": "avg(vacciguard_stream_latest_batch_avg_latency_seconds)",
+              "expr": "vacciguard_stream_latest_batch_avg_latency_seconds",
+              "legendFormat": "avg",
               "refId": "A"
+            },
+            {
+              "datasource": "Prometheus",
+              "expr": "vacciguard_stream_latest_batch_p95_latency_seconds",
+              "legendFormat": "p95",
+              "refId": "B"
+            },
+            {
+              "datasource": "Prometheus",
+              "expr": "vacciguard_stream_latest_batch_p99_latency_seconds",
+              "legendFormat": "p99",
+              "refId": "C"
+            },
+            {
+              "datasource": "Prometheus",
+              "expr": "vacciguard_stream_latest_batch_ingest_to_redis_p95_seconds",
+              "legendFormat": "ingest-to-redis p95",
+              "refId": "D"
             }
           ]
         },
         {
-          "id": 8,
-          "title": "Latest Batch P95 Latency",
-          "type": "stat",
-          "gridPos": { "h": 4, "w": 6, "x": 18, "y": 4 },
+          "id": 14,
+          "title": "Throughput vs Lag",
+          "type": "timeseries",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 8
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 8,
+                "lineWidth": 2
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "single",
+              "sort": "none"
+            }
+          },
           "targets": [
             {
               "datasource": "Prometheus",
-              "expr": "avg(vacciguard_stream_latest_batch_p95_latency_seconds)",
+              "expr": "vacciguard_stream_observed_throughput_eps",
+              "legendFormat": "throughput",
+              "refId": "A"
+            },
+            {
+              "datasource": "Prometheus",
+              "expr": "vacciguard_stream_consumer_lag_records",
+              "legendFormat": "consumer lag",
+              "refId": "B"
+            }
+          ]
+        },
+        {
+          "id": 15,
+          "title": "Quality Trend",
+          "type": "timeseries",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 16
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 0,
+                "lineWidth": 3,
+                "showPoints": "never"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "single",
+              "sort": "none"
+            }
+          },
+          "targets": [
+            {
+              "datasource": "Prometheus",
+              "expr": "increase(vacciguard_stream_processed_events_total[$__interval])",
+              "legendFormat": "processed / interval",
+              "refId": "A"
+            },
+            {
+              "datasource": "Prometheus",
+              "expr": "increase(vacciguard_stream_invalid_events_total[$__interval])",
+              "legendFormat": "invalid / interval",
+              "refId": "B"
+            },
+            {
+              "datasource": "Prometheus",
+              "expr": "increase(vacciguard_stream_deduplicated_events_total[$__interval])",
+              "legendFormat": "dedup / interval",
+              "refId": "C"
+            },
+            {
+              "datasource": "Prometheus",
+              "expr": "increase(vacciguard_stream_breach_events_total[$__interval])",
+              "legendFormat": "breach / interval",
+              "refId": "D"
+            }
+          ]
+        },
+        {
+          "id": 16,
+          "title": "Live Alerts",
+          "type": "table",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 16
+          },
+          "options": {
+            "showHeader": true
+          },
+          "targets": [
+            {
+              "datasource": "Prometheus",
+              "expr": "ALERTS{alertname=~\"HighLatency|ConsumerLagBuilding\"}",
+              "format": "table",
+              "instant": true,
               "refId": "A"
             }
           ]

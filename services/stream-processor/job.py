@@ -69,6 +69,18 @@ REDIS_PORT = int(os.environ.get("REDIS_PORT", "6379"))
 REDIS_DB = int(os.environ.get("REDIS_DB", "0"))
 REDIS_STATUS_TTL_SECONDS = int(os.environ.get("REDIS_STATUS_TTL_SECONDS", "3600"))
 REDIS_ACTIVE_BREACHES_KEY = os.environ.get("REDIS_ACTIVE_BREACHES_KEY", "active_breaches")
+REDIS_STREAM_METRICS_PREFIX = os.environ.get(
+    "REDIS_STREAM_METRICS_PREFIX",
+    "vacciguard:stream",
+)
+REDIS_POD_RESTART_COUNT_KEY = os.environ.get(
+    "REDIS_POD_RESTART_COUNT_KEY",
+    f"{REDIS_STREAM_METRICS_PREFIX}:pod_restart_count",
+)
+REDIS_CUMULATIVE_PROCESSED_EVENTS_KEY = os.environ.get(
+    "REDIS_CUMULATIVE_PROCESSED_EVENTS_KEY",
+    f"{REDIS_STREAM_METRICS_PREFIX}:cumulative_processed_events",
+)
 SPARK_JARS_PACKAGES = os.environ.get(
     "SPARK_JARS_PACKAGES",
     ",".join(
@@ -110,6 +122,7 @@ def summarize_batch_counts(
     processed_count: int,
     avg_end_to_end_latency_seconds: float | None,
     p95_end_to_end_latency_seconds: float | None,
+    p99_end_to_end_latency_seconds: float | None = None,
 ) -> dict[str, int | float | None]:
     return {
         "batch_id": batch_id,
@@ -120,6 +133,7 @@ def summarize_batch_counts(
         "processed_count": processed_count,
         "avg_end_to_end_latency_seconds": avg_end_to_end_latency_seconds,
         "p95_end_to_end_latency_seconds": p95_end_to_end_latency_seconds,
+        "p99_end_to_end_latency_seconds": p99_end_to_end_latency_seconds,
     }
 
 
@@ -136,8 +150,15 @@ class StreamMetricsRegistry:
             "vacciguard_stream_breach_events_total": 0,
             "vacciguard_stream_latest_batch_avg_latency_seconds": 0.0,
             "vacciguard_stream_latest_batch_p95_latency_seconds": 0.0,
+            "vacciguard_stream_latest_batch_p99_latency_seconds": 0.0,
             "vacciguard_stream_latest_batch_event_time_lag_p95_seconds": 0.0,
             "vacciguard_stream_latest_batch_ingest_to_redis_p95_seconds": 0.0,
+            "vacciguard_stream_hot_batch_duration_seconds": 0.0,
+            "vacciguard_stream_cold_batch_duration_seconds": 0.0,
+            "vacciguard_stream_observed_throughput_eps": 0.0,
+            "vacciguard_stream_pod_restart_count": 0,
+            "vacciguard_stream_queries_active": 0,
+            "vacciguard_stream_cumulative_processed_events": 0,
             "vacciguard_stream_watermark_delay_seconds": 0.0,
             "vacciguard_stream_consumer_lag_records": 0,
         }
@@ -152,6 +173,7 @@ class StreamMetricsRegistry:
         breach_count: int,
         avg_latency_seconds: float | None,
         p95_latency_seconds: float | None,
+        p99_latency_seconds: float | None = None,
         event_time_lag_p95_seconds: float | None = None,
         watermark_delay_seconds: float | None = None,
     ) -> None:
@@ -159,6 +181,7 @@ class StreamMetricsRegistry:
             self._metrics["vacciguard_stream_latest_batch_id"] = batch_id
             self._metrics["vacciguard_stream_latest_batch_timestamp_seconds"] = time.time()
             self._metrics["vacciguard_stream_processed_events_total"] += processed_count
+            self._metrics["vacciguard_stream_cumulative_processed_events"] += processed_count
             self._metrics["vacciguard_stream_invalid_events_total"] += invalid_count
             self._metrics["vacciguard_stream_deduplicated_events_total"] += deduplicated_count
             self._metrics["vacciguard_stream_breach_events_total"] += breach_count
@@ -166,6 +189,8 @@ class StreamMetricsRegistry:
                 self._metrics["vacciguard_stream_latest_batch_avg_latency_seconds"] = avg_latency_seconds
             if p95_latency_seconds is not None:
                 self._metrics["vacciguard_stream_latest_batch_p95_latency_seconds"] = p95_latency_seconds
+            if p99_latency_seconds is not None:
+                self._metrics["vacciguard_stream_latest_batch_p99_latency_seconds"] = p99_latency_seconds
             self._metrics["vacciguard_stream_latest_batch_event_time_lag_p95_seconds"] = (
                 0.0 if event_time_lag_p95_seconds is None else event_time_lag_p95_seconds
             )
@@ -190,6 +215,7 @@ class StreamMetricsRegistry:
         *,
         avg_latency_seconds: float | None,
         p95_latency_seconds: float | None,
+        p99_latency_seconds: float | None = None,
     ) -> None:
         """Update avg/p95 latency metrics from the hot-path Redis write loop.
 
@@ -201,6 +227,42 @@ class StreamMetricsRegistry:
                 self._metrics["vacciguard_stream_latest_batch_avg_latency_seconds"] = avg_latency_seconds
             if p95_latency_seconds is not None:
                 self._metrics["vacciguard_stream_latest_batch_p95_latency_seconds"] = p95_latency_seconds
+            if p99_latency_seconds is not None:
+                self._metrics["vacciguard_stream_latest_batch_p99_latency_seconds"] = p99_latency_seconds
+
+    def update_hot_runtime_metrics(
+        self,
+        *,
+        hot_batch_duration_seconds: float | None,
+        observed_throughput_eps: float | None,
+    ) -> None:
+        with self._lock:
+            if hot_batch_duration_seconds is not None:
+                self._metrics["vacciguard_stream_hot_batch_duration_seconds"] = hot_batch_duration_seconds
+            if observed_throughput_eps is not None:
+                self._metrics["vacciguard_stream_observed_throughput_eps"] = observed_throughput_eps
+
+    def update_cold_runtime_metrics(
+        self,
+        *,
+        cold_batch_duration_seconds: float | None,
+    ) -> None:
+        with self._lock:
+            if cold_batch_duration_seconds is not None:
+                self._metrics["vacciguard_stream_cold_batch_duration_seconds"] = cold_batch_duration_seconds
+
+    def set_pod_restart_count(self, restart_count: int) -> None:
+        with self._lock:
+            self._metrics["vacciguard_stream_pod_restart_count"] = restart_count
+
+    def update_queries_active(self, queries_active: int) -> None:
+        with self._lock:
+            self._metrics["vacciguard_stream_queries_active"] = queries_active
+
+    def seed_cumulative_processed_events(self, cumulative_processed_events: int) -> None:
+        with self._lock:
+            self._metrics["vacciguard_stream_processed_events_total"] = cumulative_processed_events
+            self._metrics["vacciguard_stream_cumulative_processed_events"] = cumulative_processed_events
 
     def update_consumer_lag(self, lag: int) -> None:
         with self._lock:
@@ -328,6 +390,61 @@ def _start_consumer_lag_thread(interval_seconds: int = 10) -> threading.Thread:
     return t
 
 
+def metrics_redis_client() -> redis.Redis:
+    return redis.Redis(
+        host=REDIS_HOST,
+        port=REDIS_PORT,
+        db=REDIS_DB,
+        decode_responses=True,
+    )
+
+
+def initialize_persistent_stream_metrics() -> None:
+    """Seed restart and cumulative counters from Redis so they survive pod churn."""
+    restart_count = 0
+    cumulative_processed_events = 0
+    try:
+        client = metrics_redis_client()
+        restart_count = int(client.incr(REDIS_POD_RESTART_COUNT_KEY))
+        persisted_cumulative = client.get(REDIS_CUMULATIVE_PROCESSED_EVENTS_KEY)
+        if persisted_cumulative not in (None, ""):
+            cumulative_processed_events = int(persisted_cumulative)
+    except Exception:
+        log.exception("Failed to initialize persistent stream metrics from Redis")
+        restart_count = 1
+        cumulative_processed_events = 0
+
+    STREAM_METRICS_REGISTRY.set_pod_restart_count(restart_count)
+    STREAM_METRICS_REGISTRY.seed_cumulative_processed_events(cumulative_processed_events)
+
+
+def persist_cumulative_processed_events(processed_count: int) -> None:
+    if processed_count <= 0:
+        return
+    try:
+        client = metrics_redis_client()
+        client.incrby(REDIS_CUMULATIVE_PROCESSED_EVENTS_KEY, processed_count)
+    except Exception:
+        log.exception("Failed to persist cumulative processed events to Redis")
+
+
+def _start_query_health_thread(queries: list[object], interval_seconds: int = 5) -> threading.Thread:
+    def _poll() -> None:
+        try:
+            while True:
+                active_queries = sum(1 for query in queries if getattr(query, "isActive", False))
+                STREAM_METRICS_REGISTRY.update_queries_active(active_queries)
+                if active_queries == 0:
+                    return
+                time.sleep(interval_seconds)
+        except Exception:
+            log.exception("Query health poll failed")
+
+    t = threading.Thread(target=_poll, daemon=True, name="query-health-poller")
+    t.start()
+    return t
+
+
 def build_breach_windows(processed: DataFrame) -> DataFrame:
     return (
         processed.groupBy(
@@ -362,15 +479,21 @@ def log_batch_summary(summary: dict[str, int | float | None]) -> None:
         if summary["p95_end_to_end_latency_seconds"] is not None
         else "n/a"
     )
+    p99_latency = (
+        f"{summary['p99_end_to_end_latency_seconds']:.2f}"
+        if summary.get("p99_end_to_end_latency_seconds") is not None
+        else "n/a"
+    )
     log.info(
         (
             "Batch {batch_id} summary valid={valid_count} invalid={invalid_count} "
             "deduplicated={deduplicated_count} breach={breach_count} "
             "processed={processed_count} avg_e2e_latency_s={avg_latency} "
-            "p95_e2e_latency_s={p95_latency}"
+            "p95_e2e_latency_s={p95_latency} p99_e2e_latency_s={p99_latency}"
         ).format(
             avg_latency=avg_latency,
             p95_latency=p95_latency,
+            p99_latency=p99_latency,
             **summary,
         )
     )
@@ -634,7 +757,7 @@ def serialize_value(value):
     return value
 
 
-def write_latest_state_to_redis(batch_df: DataFrame, batch_id: int) -> None:
+def write_latest_state_to_redis(batch_df: DataFrame, batch_id: int) -> int:
     latest_window = Window.partitionBy("device_id").orderBy(
         F.col("event_ts").desc(),
         F.col("kafka_ingest_ts").desc(),
@@ -710,11 +833,12 @@ def write_latest_state_to_redis(batch_df: DataFrame, batch_id: int) -> None:
     # that would overwrite previously-good metric values with 0.0.
     if written == 0:
         log.info("Batch %s: no device states to write to Redis", batch_id)
-        return
+        return 0
 
     ingest_to_redis_p95_seconds = None
     avg_e2e_latency_seconds = None
     p95_e2e_latency_seconds = None
+    p99_e2e_latency_seconds = None
     if replay_sent_times:
         replay_sent_times.sort()
         # ingest-to-Redis P95: distance from the earliest 5% of sent times to now
@@ -723,9 +847,12 @@ def write_latest_state_to_redis(batch_df: DataFrame, batch_id: int) -> None:
 
         # End-to-end latency: redis_done_ts - replay_sent_at for each device
         latencies = [redis_done_ts - t for t in replay_sent_times]
+        sorted_latencies = sorted(latencies)
         avg_e2e_latency_seconds = round(sum(latencies) / len(latencies), 2)
         p95_idx = min(len(latencies) - 1, int(len(latencies) * 0.95))
-        p95_e2e_latency_seconds = round(sorted(latencies)[p95_idx], 2)
+        p99_idx = min(len(latencies) - 1, int(len(latencies) * 0.99))
+        p95_e2e_latency_seconds = round(sorted_latencies[p95_idx], 2)
+        p99_e2e_latency_seconds = round(sorted_latencies[p99_idx], 2)
 
     STREAM_METRICS_REGISTRY.update_redis_metrics(
         ingest_to_redis_p95_seconds=ingest_to_redis_p95_seconds
@@ -733,8 +860,10 @@ def write_latest_state_to_redis(batch_df: DataFrame, batch_id: int) -> None:
     STREAM_METRICS_REGISTRY.update_hot_latency_metrics(
         avg_latency_seconds=avg_e2e_latency_seconds,
         p95_latency_seconds=p95_e2e_latency_seconds,
+        p99_latency_seconds=p99_e2e_latency_seconds,
     )
     log.info("Batch %s: wrote %s latest device states to Redis", batch_id, written)
+    return written
 
 
 def write_hot_batch(batch_df: DataFrame, batch_id: int, lookup_df: DataFrame) -> None:
@@ -746,6 +875,7 @@ def write_hot_batch(batch_df: DataFrame, batch_id: int, lookup_df: DataFrame) ->
       - No counts — no Spark aggregation actions at all
       - Latency is measured in Python at the moment Redis confirms the write
     """
+    hot_batch_started_ts = time.time()
     valid_batch = batch_df.filter(F.col("invalid_reason").isNull())
     deduplicated_batch = valid_batch.dropDuplicates(["event_id"])
     enriched_batch = deduplicated_batch.join(F.broadcast(lookup_df), on="device_id", how="left")
@@ -767,7 +897,17 @@ def write_hot_batch(batch_df: DataFrame, batch_id: int, lookup_df: DataFrame) ->
     )
     # Single Spark action: collect latest-per-device rows to driver, write Redis,
     # compute latency in Python. Latency + redis metrics published inside.
-    write_latest_state_to_redis(processed_batch, batch_id)
+    written = write_latest_state_to_redis(processed_batch, batch_id)
+    hot_batch_duration_seconds = round(time.time() - hot_batch_started_ts, 2)
+    observed_throughput_eps = (
+        round(written / hot_batch_duration_seconds, 2)
+        if hot_batch_duration_seconds > 0 and written > 0
+        else 0.0
+    )
+    STREAM_METRICS_REGISTRY.update_hot_runtime_metrics(
+        hot_batch_duration_seconds=hot_batch_duration_seconds,
+        observed_throughput_eps=observed_throughput_eps,
+    )
 
 
 def write_cold_batch(batch_df: DataFrame, batch_id: int, lookup_df: DataFrame) -> None:
@@ -778,6 +918,7 @@ def write_cold_batch(batch_df: DataFrame, batch_id: int, lookup_df: DataFrame) -
     Fires on COLD_TRIGGER_INTERVAL (default 30 s) so S3 writes never block
     the hot query's Redis path.
     """
+    cold_batch_started_ts = time.time()
     persisted_frames: list[DataFrame] = []
 
     def _persist(frame: DataFrame) -> DataFrame:
@@ -858,7 +999,7 @@ def write_cold_batch(batch_df: DataFrame, batch_id: int, lookup_df: DataFrame) -
 
         # S3 writes — no latency action before these
         if processed_count > 0:
-            processed_batch.write.mode("append").parquet(PROCESSED_OUTPUT_PATH)
+            processed_batch.withColumn("spark_processed_at", F.current_timestamp()).write.mode("append").parquet(PROCESSED_OUTPUT_PATH)
             build_breach_windows(processed_batch).write.mode("append").json(
                 BREACH_WINDOW_OUTPUT_PATH
             )
@@ -867,13 +1008,20 @@ def write_cold_batch(batch_df: DataFrame, batch_id: int, lookup_df: DataFrame) -
 
         all_invalid = invalid_batch.unionByName(unknown_device_batch)
         if invalid_count > 0:
-            all_invalid.write.mode("append").json(INVALID_OUTPUT_PATH)
+            all_invalid.withColumn("spark_processed_at", F.current_timestamp()).write.mode("append").json(INVALID_OUTPUT_PATH)
         else:
             log.info("Batch %s: no invalid records to append", batch_id)
+
+        persist_cumulative_processed_events(processed_count)
 
     finally:
         for frame in reversed(persisted_frames):
             frame.unpersist()
+
+    cold_batch_duration_seconds = round(time.time() - cold_batch_started_ts, 2)
+    STREAM_METRICS_REGISTRY.update_cold_runtime_metrics(
+        cold_batch_duration_seconds=cold_batch_duration_seconds,
+    )
 
     log_batch_summary(
         summarize_batch_counts(
@@ -885,6 +1033,7 @@ def write_cold_batch(batch_df: DataFrame, batch_id: int, lookup_df: DataFrame) -
             processed_count=processed_count,
             avg_end_to_end_latency_seconds=None,
             p95_end_to_end_latency_seconds=None,
+            p99_end_to_end_latency_seconds=None,
         )
     )
     # Pass None for latency — hot query owns those metrics; cold must not clobber them.
@@ -896,6 +1045,7 @@ def write_cold_batch(batch_df: DataFrame, batch_id: int, lookup_df: DataFrame) -
         breach_count=breach_count,
         avg_latency_seconds=None,
         p95_latency_seconds=None,
+        p99_latency_seconds=None,
     )
 
 
@@ -1081,7 +1231,7 @@ def write_optimized_batch(batch_df: DataFrame, batch_id: int, lookup_df: DataFra
                 ):
                     watermark_delay_value = 0.0
 
-        processed_batch.write.mode("append").parquet(PROCESSED_OUTPUT_PATH)
+        processed_batch.withColumn("spark_processed_at", F.current_timestamp()).write.mode("append").parquet(PROCESSED_OUTPUT_PATH)
         write_breach_windows_batch(processed_batch, batch_id)
         write_latest_state_to_redis(processed_batch, batch_id)
     finally:
@@ -1389,7 +1539,7 @@ def write_baseline_batch(batch_df: DataFrame, batch_id: int, lookup_df: DataFram
         # Action 5 (Redis) first, then S3 writes
         if processed_count > 0:
             write_latest_state_to_redis(processed_batch, batch_id)
-            processed_batch.write.mode("append").parquet(PROCESSED_OUTPUT_PATH)
+            processed_batch.withColumn("spark_processed_at", F.current_timestamp()).write.mode("append").parquet(PROCESSED_OUTPUT_PATH)
             build_breach_windows(processed_batch).write.mode("append").json(
                 BREACH_WINDOW_OUTPUT_PATH
             )
@@ -1398,7 +1548,7 @@ def write_baseline_batch(batch_df: DataFrame, batch_id: int, lookup_df: DataFram
 
         all_invalid = invalid_batch.unionByName(unknown_device_batch)
         if invalid_count > 0:
-            all_invalid.write.mode("append").json(INVALID_OUTPUT_PATH)
+            all_invalid.withColumn("spark_processed_at", F.current_timestamp()).write.mode("append").json(INVALID_OUTPUT_PATH)
         else:
             log.info("Batch %s: no invalid records to append", batch_id)
 
@@ -1431,11 +1581,16 @@ def write_baseline_batch(batch_df: DataFrame, batch_id: int, lookup_df: DataFram
     )
 
 
-def start_queries(
-    hot_classified: DataFrame,
-    cold_classified: DataFrame,
-    lookup_df: DataFrame,
-):
+def start_queries(*args):
+    if len(args) == 3:
+        hot_classified, cold_classified, lookup_df = args
+    elif len(args) == 4:
+        _, _, classified_df, lookup_df = args
+        hot_classified = classified_df
+        cold_classified = classified_df
+    else:
+        raise TypeError(f"start_queries() expected 3 or 4 positional arguments, got {len(args)}")
+
     if pipeline_mode() == "optimized":
         optimized_query = (
             hot_classified.writeStream.foreachBatch(
@@ -1466,6 +1621,9 @@ def start_queries(
         .trigger(processingTime=COLD_TRIGGER_INTERVAL)
         .start()
     )
+    STREAM_METRICS_REGISTRY.update_queries_active(
+        sum(1 for query in (hot_query, cold_query) if getattr(query, "isActive", False))
+    )
     return [hot_query, cold_query]
 
 
@@ -1475,6 +1633,7 @@ def main() -> None:
         ensure_local_paths()
         ensure_kafka_topic()
         metrics_server = start_metrics_server(STREAM_METRICS_PORT, STREAM_METRICS_REGISTRY)
+        initialize_persistent_stream_metrics()
         spark = build_spark()
         spark.sparkContext.setLogLevel(os.environ.get("SPARK_LOG_LEVEL", "WARN"))
 
@@ -1485,9 +1644,14 @@ def main() -> None:
         # Hot stream: capped at MAX_OFFSETS_PER_TRIGGER (keeps 2s batches small).
         # Cold stream: uncapped (or COLD_MAX_OFFSETS_PER_TRIGGER) so the 30s trigger
         # can drain the full accumulated window without falling behind.
-        hot_classified = build_stream(spark)
-        cold_classified = build_stream(spark, max_offsets_per_trigger=COLD_MAX_OFFSETS_PER_TRIGGER)
-        queries = start_queries(hot_classified, cold_classified, lookup_df)
+        if pipeline_mode() == "optimized":
+            classified = build_stream(spark)
+            queries = start_queries(None, None, classified, lookup_df)
+        else:
+            hot_classified = build_stream(spark)
+            cold_classified = build_stream(spark, max_offsets_per_trigger=COLD_MAX_OFFSETS_PER_TRIGGER)
+            queries = start_queries(hot_classified, cold_classified, lookup_df)
+        _start_query_health_thread(queries)
 
         log.info(
             "Stream processor is running with %d active queries and metrics on port %d",

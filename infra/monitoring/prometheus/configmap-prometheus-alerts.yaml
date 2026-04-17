@@ -1,0 +1,47 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-alerts
+  namespace: monitoring
+data:
+  vacciguard-sla.yml: |
+    groups:
+      - name: vacciguard_sla
+        rules:
+          - alert: VacciGuardHighLatency
+            expr: vacciguard_stream_latest_batch_avg_latency_seconds > 5
+            for: 1m
+            labels:
+              severity: critical
+              pipeline: vacciguard
+            annotations:
+              summary: "End-to-end latency SLA breach"
+              description: >
+                Stream processor avg latency is {{ $value | printf "%.2f" }}s,
+                which exceeds the 5s SLA threshold.
+                Pod: {{ $labels.pod }}
+
+          - alert: VacciGuardConsumerLagBuilding
+            expr: vacciguard_stream_consumer_lag_records > 1000
+            for: 2m
+            labels:
+              severity: warning
+              pipeline: vacciguard
+            annotations:
+              summary: "Kafka consumer lag growing"
+              description: >
+                Consumer lag is {{ $value }} records.
+                The pipeline is falling behind the Kafka topic.
+                Pod: {{ $labels.pod }}
+
+          - alert: VacciGuardStreamProcessorDown
+            expr: absent(vacciguard_stream_latest_batch_id)
+            for: 30s
+            labels:
+              severity: critical
+              pipeline: vacciguard
+            annotations:
+              summary: "Stream processor metrics endpoint unreachable"
+              description: >
+                No metrics have been scraped from the stream processor
+                for over 30 seconds. The pod may be down or restarting.

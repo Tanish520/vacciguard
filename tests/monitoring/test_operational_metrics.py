@@ -61,6 +61,13 @@ class StreamOperationalMetricsTests(unittest.TestCase):
         self.assertIn("vacciguard_stream_breach_events_total 0", initial_rendered)
         self.assertIn("vacciguard_stream_latest_batch_avg_latency_seconds 0.0", initial_rendered)
         self.assertIn("vacciguard_stream_latest_batch_p95_latency_seconds 0.0", initial_rendered)
+        self.assertIn("vacciguard_stream_latest_batch_p99_latency_seconds 0.0", initial_rendered)
+        self.assertIn("vacciguard_stream_hot_batch_duration_seconds 0.0", initial_rendered)
+        self.assertIn("vacciguard_stream_cold_batch_duration_seconds 0.0", initial_rendered)
+        self.assertIn("vacciguard_stream_observed_throughput_eps 0.0", initial_rendered)
+        self.assertIn("vacciguard_stream_pod_restart_count 0", initial_rendered)
+        self.assertIn("vacciguard_stream_queries_active 0", initial_rendered)
+        self.assertIn("vacciguard_stream_cumulative_processed_events 0", initial_rendered)
         self.assertTrue(initial_rendered.endswith("\n"))
 
         registry.update_batch_metrics(
@@ -71,6 +78,7 @@ class StreamOperationalMetricsTests(unittest.TestCase):
             breach_count=1,
             avg_latency_seconds=0.5,
             p95_latency_seconds=1.25,
+            p99_latency_seconds=1.75,
         )
         registry.update_batch_metrics(
             batch_id=7,
@@ -80,17 +88,32 @@ class StreamOperationalMetricsTests(unittest.TestCase):
             breach_count=4,
             avg_latency_seconds=1.25,
             p95_latency_seconds=2.75,
+            p99_latency_seconds=3.25,
         )
+        registry.update_hot_runtime_metrics(
+            hot_batch_duration_seconds=1.5,
+            observed_throughput_eps=10.0,
+        )
+        registry.update_cold_runtime_metrics(cold_batch_duration_seconds=3.0)
+        registry.set_pod_restart_count(4)
+        registry.update_queries_active(2)
 
         rendered = registry.render_prometheus()
 
         self.assertIn("vacciguard_stream_latest_batch_id 7", rendered)
         self.assertIn("vacciguard_stream_processed_events_total 15", rendered)
+        self.assertIn("vacciguard_stream_cumulative_processed_events 15", rendered)
         self.assertIn("vacciguard_stream_invalid_events_total 3", rendered)
         self.assertIn("vacciguard_stream_deduplicated_events_total 4", rendered)
         self.assertIn("vacciguard_stream_breach_events_total 5", rendered)
         self.assertIn("vacciguard_stream_latest_batch_avg_latency_seconds 1.25", rendered)
         self.assertIn("vacciguard_stream_latest_batch_p95_latency_seconds 2.75", rendered)
+        self.assertIn("vacciguard_stream_latest_batch_p99_latency_seconds 3.25", rendered)
+        self.assertIn("vacciguard_stream_hot_batch_duration_seconds 1.5", rendered)
+        self.assertIn("vacciguard_stream_cold_batch_duration_seconds 3.0", rendered)
+        self.assertIn("vacciguard_stream_observed_throughput_eps 10.0", rendered)
+        self.assertIn("vacciguard_stream_pod_restart_count 4", rendered)
+        self.assertIn("vacciguard_stream_queries_active 2", rendered)
         self.assertTrue(rendered.endswith("\n"))
 
 

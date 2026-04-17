@@ -186,6 +186,7 @@ class RunContractTests(unittest.TestCase):
                 "stream_metrics_source": "metrics_endpoint",
                 "event_time_lag_p95_seconds": 12.25,
                 "ingest_to_redis_p95_seconds": 4.5,
+                "p99_end_to_end_latency_seconds": 3.5,
                 "watermark_delay_seconds": 601.0,
                 "consumer_lag_records": 17,
                 "invalid_rate_pct": 1.82,
@@ -208,6 +209,7 @@ class RunContractTests(unittest.TestCase):
         self.assertIn("## Metrics", markdown)
         self.assertIn("| Stream metrics source | metrics_endpoint |", markdown)
         self.assertIn("| Ingest-to-Redis P95 | 4.50 s |", markdown)
+        self.assertIn("| P99 latency | 3.50 s |", markdown)
         self.assertIn("| Consumer lag | 17 records |", markdown)
         self.assertIn("| Pipeline success | True |", markdown)
         self.assertIn("| Processed output objects | 52 |", markdown)

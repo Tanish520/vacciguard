@@ -16,7 +16,8 @@ STREAM_SUMMARY_RE = re.compile(
     r"Batch (?P<batch_id>\d+) summary valid=(?P<valid_count>\d+) invalid=(?P<invalid_count>\d+) "
     r"deduplicated=(?P<deduplicated_count>\d+) breach=(?P<breach_count>\d+) "
     r"processed=(?P<processed_count>\d+) avg_e2e_latency_s=(?P<avg_latency>n/a|\d+(?:\.\d+)?) "
-    r"p95_e2e_latency_s=(?P<p95_latency>n/a|\d+(?:\.\d+)?)"
+    r"p95_e2e_latency_s=(?P<p95_latency>n/a|\d+(?:\.\d+)?)(?: "
+    r"p99_e2e_latency_s=(?P<p99_latency>n/a|\d+(?:\.\d+)?))?"
 )
 PROMETHEUS_SAMPLE_RE = re.compile(
     r"^(?P<name>[a-zA-Z_:][a-zA-Z0-9_:]*)\s+(?P<value>-?\d+(?:\.\d+)?)$"
@@ -28,8 +29,15 @@ PROMETHEUS_STREAM_METRICS = {
     "vacciguard_stream_breach_events_total": "breach_events",
     "vacciguard_stream_latest_batch_avg_latency_seconds": "avg_end_to_end_latency_seconds",
     "vacciguard_stream_latest_batch_p95_latency_seconds": "p95_end_to_end_latency_seconds",
+    "vacciguard_stream_latest_batch_p99_latency_seconds": "p99_end_to_end_latency_seconds",
     "vacciguard_stream_latest_batch_event_time_lag_p95_seconds": "event_time_lag_p95_seconds",
     "vacciguard_stream_latest_batch_ingest_to_redis_p95_seconds": "ingest_to_redis_p95_seconds",
+    "vacciguard_stream_hot_batch_duration_seconds": "hot_batch_duration_seconds",
+    "vacciguard_stream_cold_batch_duration_seconds": "cold_batch_duration_seconds",
+    "vacciguard_stream_observed_throughput_eps": "observed_throughput_eps",
+    "vacciguard_stream_pod_restart_count": "pod_restart_count",
+    "vacciguard_stream_queries_active": "queries_active",
+    "vacciguard_stream_cumulative_processed_events": "cumulative_processed_events",
     "vacciguard_stream_watermark_delay_seconds": "watermark_delay_seconds",
     "vacciguard_stream_consumer_lag_records": "consumer_lag_records",
 }
@@ -39,12 +47,19 @@ def _base_metrics() -> dict[str, float | int | str | None]:
     return {
         "avg_end_to_end_latency_seconds": None,
         "p95_end_to_end_latency_seconds": None,
+        "p99_end_to_end_latency_seconds": None,
         "throughput_eps": None,
         "input_events": None,
         "processed_events": 0,
+        "cumulative_processed_events": 0,
         "invalid_events": 0,
         "deduplicated_events": 0,
         "breach_events": 0,
+        "hot_batch_duration_seconds": None,
+        "cold_batch_duration_seconds": None,
+        "observed_throughput_eps": None,
+        "pod_restart_count": None,
+        "queries_active": None,
         "event_time_lag_p95_seconds": None,
         "ingest_to_redis_p95_seconds": None,
         "watermark_delay_seconds": None,
@@ -89,10 +104,12 @@ def _parse_stream_summary_metrics(stream_logs):
         "breach_events": 0,
         "avg_end_to_end_latency_seconds": None,
         "p95_end_to_end_latency_seconds": None,
+        "p99_end_to_end_latency_seconds": None,
     }
     weighted_latency_sum = 0.0
     weighted_latency_count = 0
     p95_candidates = []
+    p99_candidates = []
 
     for match in stream_matches:
         processed_count = int(match.group("processed_count"))
@@ -110,12 +127,18 @@ def _parse_stream_summary_metrics(stream_logs):
         if p95_latency is not None:
             p95_candidates.append(p95_latency)
 
+        p99_latency = _maybe_float(match.group("p99_latency"))
+        if p99_latency is not None:
+            p99_candidates.append(p99_latency)
+
     if weighted_latency_count > 0:
         parsed["avg_end_to_end_latency_seconds"] = round(
             weighted_latency_sum / weighted_latency_count, 2
         )
     if p95_candidates:
         parsed["p95_end_to_end_latency_seconds"] = round(max(p95_candidates), 2)
+    if p99_candidates:
+        parsed["p99_end_to_end_latency_seconds"] = round(max(p99_candidates), 2)
     return parsed
 
 
@@ -169,10 +192,13 @@ def extract_metrics(
             # should only override it when they carry an actual numeric summary.
             avg_latency = stream_summary_metrics.get("avg_end_to_end_latency_seconds")
             p95_latency = stream_summary_metrics.get("p95_end_to_end_latency_seconds")
+            p99_latency = stream_summary_metrics.get("p99_end_to_end_latency_seconds")
             if avg_latency is not None:
                 metrics["avg_end_to_end_latency_seconds"] = avg_latency
             if p95_latency is not None:
                 metrics["p95_end_to_end_latency_seconds"] = p95_latency
+            if p99_latency is not None:
+                metrics["p99_end_to_end_latency_seconds"] = p99_latency
         metrics["stream_metrics_source"] = "metrics_endpoint"
     elif stream_summary_metrics is not None:
         metrics.update(stream_summary_metrics)
@@ -214,15 +240,22 @@ def render_markdown_table(metrics: dict[str, float | int | str | None]) -> str:
         ("Stream metrics source", _format_metric(metrics.get("stream_metrics_source", "unavailable"))),
         ("Avg end-to-end latency", _format_metric(metrics.get("avg_end_to_end_latency_seconds"), " s")),
         ("P95 latency", _format_metric(metrics.get("p95_end_to_end_latency_seconds"), " s")),
+        ("P99 latency", _format_metric(metrics.get("p99_end_to_end_latency_seconds"), " s")),
         ("Throughput", _format_metric(metrics.get("throughput_eps"), " events/s")),
         ("Input events", _format_metric(metrics.get("input_events"))),
         ("Processed events", _format_metric(metrics.get("processed_events"))),
+        ("Cumulative processed events", _format_metric(metrics.get("cumulative_processed_events"))),
         ("Processed rate", _format_metric(metrics.get("processed_rate_pct"), "%")),
         ("Invalid events", _format_metric(metrics.get("invalid_events"))),
         ("Invalid rate", _format_metric(metrics.get("invalid_rate_pct"), "%")),
         ("Deduplicated events", _format_metric(metrics.get("deduplicated_events"))),
         ("Deduplication rate", _format_metric(metrics.get("deduplication_rate_pct"), "%")),
         ("Breach events", _format_metric(metrics.get("breach_events"))),
+        ("Pod restart count", _format_metric(metrics.get("pod_restart_count"))),
+        ("Queries active", _format_metric(metrics.get("queries_active"))),
+        ("Hot batch duration", _format_metric(metrics.get("hot_batch_duration_seconds"), " s")),
+        ("Cold batch duration", _format_metric(metrics.get("cold_batch_duration_seconds"), " s")),
+        ("Observed throughput", _format_metric(metrics.get("observed_throughput_eps"), " events/s")),
         ("Event-time lag P95", _format_metric(metrics.get("event_time_lag_p95_seconds"), " s")),
         ("Ingest-to-Redis P95", _format_metric(metrics.get("ingest_to_redis_p95_seconds"), " s")),
         ("Watermark delay", _format_metric(metrics.get("watermark_delay_seconds"), " s")),
