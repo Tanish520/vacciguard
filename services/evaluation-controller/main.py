@@ -166,6 +166,7 @@ def reset_redis_state() -> None:
 
     config_map = read_pipeline_config()
     data = config_map.data or {}
+    metrics_prefix = data.get("REDIS_STREAM_METRICS_PREFIX", "vacciguard:stream")
     client = redis.Redis(
         host=data["REDIS_HOST"],
         port=int(data["REDIS_PORT"]),
@@ -176,6 +177,10 @@ def reset_redis_state() -> None:
     if keys:
         client.delete(*keys)
     client.delete(REDIS_ACTIVE_BREACHES_KEY)
+    client.delete(
+        f"{metrics_prefix}:pod_restart_count",
+        f"{metrics_prefix}:cumulative_processed_events",
+    )
 
 
 def patch_pipeline_config(contract: controller.RunContract) -> None:

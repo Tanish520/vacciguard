@@ -20,7 +20,7 @@ import os
 import re
 import threading
 import time
-from datetime import datetime
+from datetime import date, datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
@@ -28,7 +28,7 @@ import redis
 from kafka import KafkaAdminClient, KafkaConsumer, TopicPartition
 from kafka.admin import NewTopic
 from kafka.errors import NoBrokersAvailable, TopicAlreadyExistsError
-from pyspark.sql import DataFrame, SparkSession, Window
+from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import functions as F
 from pyspark.sql import types as T
 
@@ -756,6 +756,8 @@ def build_stream(spark: SparkSession, max_offsets_per_trigger: str | None = None
 def serialize_value(value):
     if isinstance(value, datetime):
         return value.strftime("%Y-%m-%dT%H:%M:%SZ")
+    if isinstance(value, date):
+        return value.isoformat()
     if isinstance(value, bool):
         return value
     return value
