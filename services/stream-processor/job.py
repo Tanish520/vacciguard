@@ -761,37 +761,20 @@ def serialize_value(value):
     return value
 
 
-def write_latest_state_to_redis(batch_df: DataFrame, batch_id: int) -> int:
-    latest_window = Window.partitionBy("device_id").orderBy(
-        F.col("event_ts").desc(),
-        F.col("kafka_ingest_ts").desc(),
-        F.col("offset").desc(),
-    )
-
-    latest_rows = (
-        batch_df.withColumn("row_num", F.row_number().over(latest_window))
-        .filter(F.col("row_num") == 1)
-        .drop("row_num")
-        .select(
-            "device_id",
-            "event_id",
-            "event_time",
-            "temperature_c",
-            "door_open",
-            "battery_pct",
-            "facility_id",
-            "facility_name",
-            "district",
-            "state",
-            "storage_type",
-            "min_temp_c",
-            "max_temp_c",
-            "breach_status",
-            "replay_sent_at",
-            "event_ts",
+def reduce_latest_state_rows(batch_df: DataFrame) -> DataFrame:
+    payload_columns = [F.col(name).alias(name) for name in batch_df.columns]
+    latest_struct = F.max(
+        F.struct(
+            F.col("event_ts"),
+            F.col("kafka_ingest_ts"),
+            F.col("offset"),
+            F.struct(*payload_columns).alias("payload"),
         )
-    )
+    ).alias("latest")
+    return batch_df.groupBy("device_id").agg(latest_struct).select("latest.payload.*")
 
+
+def _write_latest_state_partition(rows) -> None:
     redis_client = redis.Redis(
         host=REDIS_HOST,
         port=REDIS_PORT,
@@ -799,13 +782,8 @@ def write_latest_state_to_redis(batch_df: DataFrame, batch_id: int) -> int:
         decode_responses=True,
     )
     pipeline = redis_client.pipeline(transaction=False)
-    written = 0
-    replay_sent_times: list[float] = []
-
-    # Single Spark action: collect rows and build Redis pipeline simultaneously.
-    # Capture replay_sent_at timestamps in Python so we can compute ingest-to-Redis
-    # latency after pipeline.execute() without an extra Spark aggregation.
-    for row in latest_rows.toLocalIterator():
+    wrote_any = False
+    for row in rows:
         payload = {key: serialize_value(value) for key, value in row.asDict().items()}
         key = f"device:status:{row['device_id']}"
         pipeline.setex(key, REDIS_STATUS_TTL_SECONDS, json.dumps(payload))
@@ -816,21 +794,67 @@ def write_latest_state_to_redis(batch_df: DataFrame, batch_id: int) -> int:
             pipeline.zadd(REDIS_ACTIVE_BREACHES_KEY, {row["device_id"]: score})
         else:
             pipeline.zrem(REDIS_ACTIVE_BREACHES_KEY, row["device_id"])
+        wrote_any = True
 
-        if row["replay_sent_at"]:
-            try:
-                replay_sent_times.append(
-                    datetime.fromisoformat(
-                        row["replay_sent_at"].replace("Z", "+00:00")
-                    ).timestamp()
-                )
-            except Exception:
-                pass
+    if wrote_any:
+        pipeline.execute()
 
-        written += 1
 
-    pipeline.execute()
+def summarize_latest_state_metrics(
+    latest_rows: DataFrame, redis_done_ts: float
+) -> tuple[int, float | None, float | None, float | None, float | None]:
+    timing_row = (
+        latest_rows.withColumn("replay_sent_ts", F.to_timestamp("replay_sent_at"))
+        .withColumn(
+            "latency_seconds",
+            F.when(
+                F.col("replay_sent_ts").isNotNull(),
+                F.lit(redis_done_ts) - F.col("replay_sent_ts").cast("double"),
+            ),
+        )
+        .agg(
+            F.count("*").alias("written"),
+            F.avg("latency_seconds").alias("avg_latency"),
+            F.percentile_approx("latency_seconds", 0.95, 10000).alias("p95_latency"),
+            F.percentile_approx("latency_seconds", 0.99, 10000).alias("p99_latency"),
+        )
+        .first()
+    )
+    if timing_row is None:
+        return 0, None, None, None, None
+
+    written = int(timing_row["written"] or 0)
+    avg_latency = (
+        round(float(timing_row["avg_latency"]), 2)
+        if timing_row["avg_latency"] is not None
+        else None
+    )
+    p95_latency = (
+        round(float(timing_row["p95_latency"]), 2)
+        if timing_row["p95_latency"] is not None
+        else None
+    )
+    p99_latency = (
+        round(float(timing_row["p99_latency"]), 2)
+        if timing_row["p99_latency"] is not None
+        else None
+    )
+    ingest_to_redis_p95_seconds = p95_latency
+    return written, ingest_to_redis_p95_seconds, avg_latency, p95_latency, p99_latency
+
+
+def write_latest_state_to_redis(batch_df: DataFrame, batch_id: int) -> int:
+    latest_rows = reduce_latest_state_rows(batch_df).persist()
+    latest_rows.foreachPartition(_write_latest_state_partition)
     redis_done_ts = time.time()
+    (
+        written,
+        ingest_to_redis_p95_seconds,
+        avg_e2e_latency_seconds,
+        p95_e2e_latency_seconds,
+        p99_e2e_latency_seconds,
+    ) = summarize_latest_state_metrics(latest_rows, redis_done_ts)
+    latest_rows.unpersist()
 
     # Only publish metrics when there were actual rows to write. Empty batches (no
     # new events in the Kafka range) must NOT call update_redis_metrics(None) because
@@ -838,25 +862,6 @@ def write_latest_state_to_redis(batch_df: DataFrame, batch_id: int) -> int:
     if written == 0:
         log.info("Batch %s: no device states to write to Redis", batch_id)
         return 0
-
-    ingest_to_redis_p95_seconds = None
-    avg_e2e_latency_seconds = None
-    p95_e2e_latency_seconds = None
-    p99_e2e_latency_seconds = None
-    if replay_sent_times:
-        replay_sent_times.sort()
-        # ingest-to-Redis P95: distance from the earliest 5% of sent times to now
-        p05_idx = max(0, int(len(replay_sent_times) * 0.05) - 1)
-        ingest_to_redis_p95_seconds = round(redis_done_ts - replay_sent_times[p05_idx], 2)
-
-        # End-to-end latency: redis_done_ts - replay_sent_at for each device
-        latencies = [redis_done_ts - t for t in replay_sent_times]
-        sorted_latencies = sorted(latencies)
-        avg_e2e_latency_seconds = round(sum(latencies) / len(latencies), 2)
-        p95_idx = min(len(latencies) - 1, int(len(latencies) * 0.95))
-        p99_idx = min(len(latencies) - 1, int(len(latencies) * 0.99))
-        p95_e2e_latency_seconds = round(sorted_latencies[p95_idx], 2)
-        p99_e2e_latency_seconds = round(sorted_latencies[p99_idx], 2)
 
     STREAM_METRICS_REGISTRY.update_redis_metrics(
         ingest_to_redis_p95_seconds=ingest_to_redis_p95_seconds
