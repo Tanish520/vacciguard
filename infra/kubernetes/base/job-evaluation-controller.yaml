@@ -11,7 +11,7 @@ spec:
       restartPolicy: Never
       containers:
         - name: evaluation-controller
-          image: 347038623570.dkr.ecr.ap-south-1.amazonaws.com/vacciguard-evaluation-controller:reporting-20260417t035233z-amd64
+          image: 347038623570.dkr.ecr.ap-south-1.amazonaws.com/vacciguard-evaluation-controller:split-optimized-20260417t170754z-amd64
           imagePullPolicy: Always
           env:
             - name: PIPELINE_TARGET

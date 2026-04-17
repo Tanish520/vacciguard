@@ -20,7 +20,7 @@ spec:
       serviceAccountName: vacciguard-pipeline
       containers:
         - name: stream-processor
-          image: 347038623570.dkr.ecr.ap-south-1.amazonaws.com/vacciguard-stream-processor:metrics-2q-20260417t035304z-amd64
+          image: 347038623570.dkr.ecr.ap-south-1.amazonaws.com/vacciguard-stream-processor:split-optimized-20260417t165916z-amd64
           imagePullPolicy: Always
           ports:
             - name: metrics

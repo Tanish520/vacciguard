@@ -4,6 +4,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import types
 import unittest
 from unittest import mock
 from pathlib import Path
@@ -707,6 +708,37 @@ class OrchestrationFlowTests(unittest.TestCase):
         self.assertEqual(metrics["scenario"], "spike")
         self.assertEqual(
             metrics["workload_family_version"], "evaluation-workload-v1"
+        )
+
+    def test_reset_redis_state_clears_persistent_stream_metric_keys(self):
+        controller_main = load_module(
+            "evaluation_controller_main_reset_redis_state",
+            "services/evaluation-controller/main.py",
+        )
+        fake_client = mock.Mock()
+        fake_client.scan_iter.return_value = iter(["device:status:one", "device:status:two"])
+        fake_config = types.SimpleNamespace(
+            data={
+                "REDIS_HOST": "redis",
+                "REDIS_PORT": "6379",
+                "REDIS_DB": "0",
+                "REDIS_STREAM_METRICS_PREFIX": "vacciguard:stream",
+            }
+        )
+
+        fake_redis_module = mock.Mock()
+        fake_redis_module.Redis.return_value = fake_client
+
+        with mock.patch.object(controller_main, "read_pipeline_config", return_value=fake_config), \
+            mock.patch.object(controller_main, "REDIS_ACTIVE_BREACHES_KEY", "active_breaches"), \
+            mock.patch.dict(sys.modules, {"redis": fake_redis_module}):
+            controller_main.reset_redis_state()
+
+        fake_client.delete.assert_any_call("device:status:one", "device:status:two")
+        fake_client.delete.assert_any_call("active_breaches")
+        fake_client.delete.assert_any_call(
+            "vacciguard:stream:pod_restart_count",
+            "vacciguard:stream:cumulative_processed_events",
         )
 
     def test_run_orchestration_collects_metrics_and_returns_report_fields(self):

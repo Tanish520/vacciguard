@@ -53,6 +53,14 @@ class OutputPathConfigTests(unittest.TestCase):
         self.assertEqual(stream_job.WATERMARK_DELAY, "10 minutes")
 
 
+class SerializationTests(unittest.TestCase):
+    def test_serialize_value_formats_date_as_iso_string(self):
+        self.assertEqual(
+            stream_job.serialize_value(stream_job.date(2026, 4, 17)),
+            "2026-04-17",
+        )
+
+
 class PersistentMetricStateTests(unittest.TestCase):
     def test_initialize_persistent_stream_metrics_seeds_restart_and_cumulative_counts(self):
         fake_client = Mock()
