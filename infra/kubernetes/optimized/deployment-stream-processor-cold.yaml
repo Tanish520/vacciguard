@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stream-processor-cold
+  namespace: vacciguard
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: stream-processor-cold
+  template:
+    metadata:
+      labels:
+        app: stream-processor-cold
+        pipeline_target: optimized
+        pipeline_service_role: cold
+    spec:
+      serviceAccountName: vacciguard-pipeline
+      containers:
+        - name: stream-processor
+          image: 347038623570.dkr.ecr.ap-south-1.amazonaws.com/vacciguard-stream-processor:metrics-2q-20260417t035304z-amd64
+          imagePullPolicy: Always
+          ports:
+            - name: metrics
+              containerPort: 9108
+          volumeMounts:
+            - name: lookup-data
+              mountPath: /data/reference
+            - name: checkpoint-vol
+              mountPath: /data/checkpoints
+          envFrom:
+            - configMapRef:
+                name: vacciguard-pipeline-config
+          env:
+            - name: PIPELINE_MODE
+              valueFrom:
+                configMapKeyRef:
+                  name: vacciguard-pipeline-config-cold
+                  key: PIPELINE_MODE
+            - name: PIPELINE_SERVICE_ROLE
+              valueFrom:
+                configMapKeyRef:
+                  name: vacciguard-pipeline-config-cold
+                  key: PIPELINE_SERVICE_ROLE
+            - name: COLD_TRIGGER_INTERVAL
+              valueFrom:
+                configMapKeyRef:
+                  name: vacciguard-pipeline-config-cold
+                  key: COLD_TRIGGER_INTERVAL
+            - name: CHECKPOINT_ROOT
+              valueFrom:
+                configMapKeyRef:
+                  name: vacciguard-pipeline-config-cold
+                  key: CHECKPOINT_ROOT
+      volumes:
+        - name: lookup-data
+          configMap:
+            name: vacciguard-lookup-data
+        - name: checkpoint-vol
+          emptyDir: {}
