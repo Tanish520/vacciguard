@@ -164,12 +164,15 @@ def extract_metrics(
     if stream_metrics is not None:
         metrics.update(stream_metrics)
         if stream_summary_metrics is not None:
-            metrics["avg_end_to_end_latency_seconds"] = stream_summary_metrics.get(
-                "avg_end_to_end_latency_seconds"
-            )
-            metrics["p95_end_to_end_latency_seconds"] = stream_summary_metrics.get(
-                "p95_end_to_end_latency_seconds"
-            )
+            # Preserve endpoint latency values when the cold-path log summary only
+            # reports "n/a". The hot path now owns the SLA metric, so the logs
+            # should only override it when they carry an actual numeric summary.
+            avg_latency = stream_summary_metrics.get("avg_end_to_end_latency_seconds")
+            p95_latency = stream_summary_metrics.get("p95_end_to_end_latency_seconds")
+            if avg_latency is not None:
+                metrics["avg_end_to_end_latency_seconds"] = avg_latency
+            if p95_latency is not None:
+                metrics["p95_end_to_end_latency_seconds"] = p95_latency
         metrics["stream_metrics_source"] = "metrics_endpoint"
     elif stream_summary_metrics is not None:
         metrics.update(stream_summary_metrics)

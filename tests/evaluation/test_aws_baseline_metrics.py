@@ -75,6 +75,34 @@ vacciguard_stream_latest_batch_p95_latency_seconds 11.0
         self.assertEqual(metrics["avg_end_to_end_latency_seconds"], 1.57)
         self.assertEqual(metrics["p95_end_to_end_latency_seconds"], 3.75)
 
+    def test_extract_metrics_preserves_endpoint_latency_when_logs_are_n_a(self):
+        replay_logs = """
+2026-04-08T12:00:00Z INFO Loaded 75 events
+2026-04-08T12:00:15Z INFO Replay complete: 75 events in 15.0s  avg 5.0 eps
+""".strip()
+        stream_logs = """
+2026-04-08T12:00:20Z INFO Batch 0 summary valid=45 invalid=2 deduplicated=5 breach=3 processed=40 avg_e2e_latency_s=n/a p95_e2e_latency_s=n/a
+""".strip()
+        stream_metrics_payload = """
+vacciguard_stream_processed_events_total 52
+vacciguard_stream_invalid_events_total 6
+vacciguard_stream_deduplicated_events_total 9
+vacciguard_stream_breach_events_total 21
+vacciguard_stream_latest_batch_avg_latency_seconds 1.5
+vacciguard_stream_latest_batch_p95_latency_seconds 2.75
+""".strip()
+
+        metrics = aws_baseline_metrics.extract_metrics(
+            replay_logs,
+            stream_logs,
+            stream_metrics_payload=stream_metrics_payload,
+        )
+
+        self.assertEqual(metrics["processed_events"], 52)
+        self.assertEqual(metrics["avg_end_to_end_latency_seconds"], 1.5)
+        self.assertEqual(metrics["p95_end_to_end_latency_seconds"], 2.75)
+        self.assertEqual(metrics["stream_metrics_source"], "metrics_endpoint")
+
     def test_extract_metrics_derives_quality_and_runtime_metrics(self):
         replay_logs = """
 2026-04-08T12:00:00Z INFO Loaded 100 events

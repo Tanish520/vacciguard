@@ -11,7 +11,7 @@ spec:
       restartPolicy: Never
       containers:
         - name: evaluation-controller
-          image: 347038623570.dkr.ecr.ap-south-1.amazonaws.com/vacciguard-evaluation-controller:reporting-20260415t221504z-amd64
+          image: 347038623570.dkr.ecr.ap-south-1.amazonaws.com/vacciguard-evaluation-controller:reporting-20260417t035233z-amd64
           imagePullPolicy: Always
           env:
             - name: PIPELINE_TARGET
@@ -26,3 +26,5 @@ spec:
               value: vacciguard-tanish-baseline-ap-south-1-data
             - name: EVALUATION_CONTROLLER_MODE
               value: orchestrate
+            - name: PIPELINE_CONFIG_NAME
+              value: vacciguard-pipeline-config

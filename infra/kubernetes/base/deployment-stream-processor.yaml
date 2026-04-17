@@ -4,6 +4,8 @@ metadata:
   name: stream-processor
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: stream-processor
@@ -16,7 +18,7 @@ spec:
       serviceAccountName: vacciguard-pipeline
       containers:
         - name: stream-processor
-          image: 347038623570.dkr.ecr.ap-south-1.amazonaws.com/vacciguard-stream-processor:metrics-5m-20260415t222355z-amd64
+          image: 347038623570.dkr.ecr.ap-south-1.amazonaws.com/vacciguard-stream-processor:metrics-2q-20260417t035304z-amd64
           imagePullPolicy: Always
           ports:
             - name: metrics

@@ -6,6 +6,8 @@ resources:
   - serviceaccount-pipeline.yaml
   - serviceaccount-evaluation-controller.yaml
   - configmap-pipeline.yaml
+  - configmap-pipeline-compat.yaml
+  - configmap-pipeline-archive.yaml
   - configmap-lookup.yaml
   - configmap-workload-dev.yaml
   - role-evaluation-controller.yaml
