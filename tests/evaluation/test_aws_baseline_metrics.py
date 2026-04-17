@@ -116,6 +116,13 @@ vacciguard_stream_deduplicated_events_total 5
 vacciguard_stream_breach_events_total 8
 vacciguard_stream_latest_batch_avg_latency_seconds 1.5
 vacciguard_stream_latest_batch_p95_latency_seconds 2.75
+vacciguard_stream_latest_batch_p99_latency_seconds 3.5
+vacciguard_stream_hot_batch_duration_seconds 1.25
+vacciguard_stream_cold_batch_duration_seconds 2.5
+vacciguard_stream_observed_throughput_eps 64.0
+vacciguard_stream_pod_restart_count 2
+vacciguard_stream_queries_active 2
+vacciguard_stream_cumulative_processed_events 80
 vacciguard_stream_latest_batch_event_time_lag_p95_seconds 12.25
 vacciguard_stream_latest_batch_ingest_to_redis_p95_seconds 4.5
 vacciguard_stream_watermark_delay_seconds 601.0
@@ -132,6 +139,13 @@ vacciguard_stream_consumer_lag_records 17
         self.assertEqual(metrics["ingest_to_redis_p95_seconds"], 4.5)
         self.assertEqual(metrics["watermark_delay_seconds"], 601.0)
         self.assertEqual(metrics["consumer_lag_records"], 17)
+        self.assertEqual(metrics["p99_end_to_end_latency_seconds"], 3.5)
+        self.assertEqual(metrics["hot_batch_duration_seconds"], 1.25)
+        self.assertEqual(metrics["cold_batch_duration_seconds"], 2.5)
+        self.assertEqual(metrics["observed_throughput_eps"], 64.0)
+        self.assertEqual(metrics["pod_restart_count"], 2)
+        self.assertEqual(metrics["queries_active"], 2)
+        self.assertEqual(metrics["cumulative_processed_events"], 80)
         self.assertEqual(metrics["invalid_rate_pct"], 10.0)
         self.assertEqual(metrics["deduplication_rate_pct"], 5.0)
         self.assertEqual(metrics["processed_rate_pct"], 80.0)
@@ -155,6 +169,7 @@ vacciguard_stream_consumer_lag_records 17
         self.assertEqual(metrics["breach_events"], 3)
         self.assertEqual(metrics["avg_end_to_end_latency_seconds"], 1.25)
         self.assertEqual(metrics["p95_end_to_end_latency_seconds"], 2.5)
+        self.assertEqual(metrics["p99_end_to_end_latency_seconds"], None)
         self.assertEqual(metrics["stream_metrics_source"], "stream_logs")
 
     def test_render_markdown_table_marks_unrun_metrics_explicitly(self):
@@ -187,12 +202,14 @@ vacciguard_stream_consumer_lag_records 17
                 "configured_events_per_second": 10.0,
                 "avg_end_to_end_latency_seconds": 1.25,
                 "p95_end_to_end_latency_seconds": 2.5,
+                "p99_end_to_end_latency_seconds": 3.5,
             }
         )
 
         self.assertIn("| Workload family version | evaluation-workload-v1 |", table)
         self.assertIn("| Scenario | normal |", table)
         self.assertIn("| Configured replay rate | 10.00 events/s |", table)
+        self.assertIn("| P99 latency | 3.50 s |", table)
 
     def test_render_markdown_table_includes_artifact_counts_and_metric_source(self):
         table = aws_baseline_metrics.render_markdown_table(
@@ -216,6 +233,11 @@ vacciguard_stream_consumer_lag_records 17
                 "ingest_to_redis_p95_seconds": 4.5,
                 "watermark_delay_seconds": 601.0,
                 "consumer_lag_records": 17,
+                "pod_restart_count": 3,
+                "queries_active": 2,
+                "hot_batch_duration_seconds": 1.25,
+                "cold_batch_duration_seconds": 2.5,
+                "observed_throughput_eps": 64.0,
                 "invalid_rate_pct": 10.0,
                 "deduplication_rate_pct": 5.0,
                 "processed_rate_pct": 80.0,
@@ -229,6 +251,11 @@ vacciguard_stream_consumer_lag_records 17
         self.assertIn("| Ingest-to-Redis P95 | 4.50 s |", table)
         self.assertIn("| Watermark delay | 601.00 s |", table)
         self.assertIn("| Consumer lag | 17 records |", table)
+        self.assertIn("| Pod restart count | 3 |", table)
+        self.assertIn("| Queries active | 2 |", table)
+        self.assertIn("| Hot batch duration | 1.25 s |", table)
+        self.assertIn("| Cold batch duration | 2.50 s |", table)
+        self.assertIn("| Observed throughput | 64.00 events/s |", table)
         self.assertIn("| Invalid rate | 10.00% |", table)
         self.assertIn("| Deduplication rate | 5.00% |", table)
         self.assertIn("| Processed rate | 80.00% |", table)

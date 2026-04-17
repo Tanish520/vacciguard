@@ -8,6 +8,8 @@ data:
     global:
       scrape_interval: 15s
       evaluation_interval: 15s
+    rule_files:
+      - /etc/prometheus/vacciguard-sla-alerts.yml
     scrape_configs:
       - job_name: kubernetes-nodes
         kubernetes_sd_configs:
@@ -50,3 +52,25 @@ data:
             regex: replay-producer
           - source_labels: [__meta_kubernetes_pod_name]
             target_label: pod
+  vacciguard-sla-alerts.yml: |
+    groups:
+      - name: vacciguard_sla
+        rules:
+          - alert: HighLatency
+            expr: vacciguard_stream_latest_batch_avg_latency_seconds > 5
+            for: 1m
+            labels:
+              severity: warning
+              component: stream-processor
+            annotations:
+              summary: "VacciGuard latency SLA breached"
+              description: "Average end-to-end latency has exceeded 5 seconds for more than 1 minute."
+          - alert: ConsumerLagBuilding
+            expr: vacciguard_stream_consumer_lag_records > 1000
+            for: 2m
+            labels:
+              severity: warning
+              component: stream-processor
+            annotations:
+              summary: "VacciGuard Kafka consumer lag is growing"
+              description: "Consumer lag has exceeded 1000 records for more than 2 minutes."

@@ -53,6 +53,27 @@ class OutputPathConfigTests(unittest.TestCase):
         self.assertEqual(stream_job.WATERMARK_DELAY, "10 minutes")
 
 
+class PersistentMetricStateTests(unittest.TestCase):
+    def test_initialize_persistent_stream_metrics_seeds_restart_and_cumulative_counts(self):
+        fake_client = Mock()
+        fake_client.incr.return_value = 7
+        fake_client.get.return_value = "123"
+        registry = stream_job.StreamMetricsRegistry()
+
+        with patch.object(stream_job, "metrics_redis_client", return_value=fake_client), patch.object(
+            stream_job,
+            "STREAM_METRICS_REGISTRY",
+            registry,
+        ):
+            stream_job.initialize_persistent_stream_metrics()
+
+        rendered = registry.render_prometheus()
+
+        self.assertIn("vacciguard_stream_pod_restart_count 7", rendered)
+        self.assertIn("vacciguard_stream_processed_events_total 123", rendered)
+        self.assertIn("vacciguard_stream_cumulative_processed_events 123", rendered)
+
+
 class SparkDependencyConfigTests(unittest.TestCase):
     def test_spark_conf_uses_local_jars_when_available(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -207,8 +228,15 @@ class StreamMetricsRegistryTests(unittest.TestCase):
         self.assertIn("vacciguard_stream_breach_events_total 0", rendered)
         self.assertIn("vacciguard_stream_latest_batch_avg_latency_seconds 0.0", rendered)
         self.assertIn("vacciguard_stream_latest_batch_p95_latency_seconds 0.0", rendered)
+        self.assertIn("vacciguard_stream_latest_batch_p99_latency_seconds 0.0", rendered)
         self.assertIn("vacciguard_stream_latest_batch_event_time_lag_p95_seconds 0.0", rendered)
         self.assertIn("vacciguard_stream_latest_batch_ingest_to_redis_p95_seconds 0.0", rendered)
+        self.assertIn("vacciguard_stream_hot_batch_duration_seconds 0.0", rendered)
+        self.assertIn("vacciguard_stream_cold_batch_duration_seconds 0.0", rendered)
+        self.assertIn("vacciguard_stream_observed_throughput_eps 0.0", rendered)
+        self.assertIn("vacciguard_stream_pod_restart_count 0", rendered)
+        self.assertIn("vacciguard_stream_queries_active 0", rendered)
+        self.assertIn("vacciguard_stream_cumulative_processed_events 0", rendered)
         self.assertIn("vacciguard_stream_watermark_delay_seconds 0.0", rendered)
         self.assertIn("vacciguard_stream_consumer_lag_records 0", rendered)
 
@@ -262,21 +290,22 @@ class QueryPlanningTests(unittest.TestCase):
         return builder
 
     def test_start_queries_uses_two_queries_in_baseline_mode(self):
-        processed_writer = self._make_query_builder()
-        classified_writer = self._make_query_builder()
-        processed_df = Mock(writeStream=processed_writer)
-        classified_df = Mock(writeStream=classified_writer)
+        hot_writer = self._make_query_builder()
+        cold_writer = self._make_query_builder()
+        hot_df = Mock(writeStream=hot_writer)
+        cold_df = Mock(writeStream=cold_writer)
         lookup_df = Mock(name="lookup_df")
 
         with patch.object(stream_job, "pipeline_mode", return_value="baseline"):
-            queries = stream_job.start_queries(processed_df, None, classified_df, lookup_df)
+            queries = stream_job.start_queries(hot_df, cold_df, lookup_df)
 
         self.assertEqual(len(queries), 2)
-        processed_writer.foreachBatch.assert_called_once_with(stream_job.write_processed_batch)
-        classified_callback = classified_writer.foreachBatch.call_args.args[0]
-        self.assertIsInstance(classified_callback, functools.partial)
-        self.assertIs(classified_callback.func, stream_job.write_classified_batch)
-        self.assertIs(classified_callback.keywords["lookup_df"], lookup_df)
+        hot_callback = hot_writer.foreachBatch.call_args.args[0]
+        cold_callback = cold_writer.foreachBatch.call_args.args[0]
+        self.assertIs(hot_callback.func, stream_job.write_hot_batch)
+        self.assertIs(cold_callback.func, stream_job.write_cold_batch)
+        self.assertIs(hot_callback.keywords["lookup_df"], lookup_df)
+        self.assertIs(cold_callback.keywords["lookup_df"], lookup_df)
 
     def test_start_queries_uses_single_query_in_optimized_mode(self):
         classified_writer = self._make_query_builder()
@@ -795,13 +824,14 @@ class ProcessedBatchWriteTests(unittest.TestCase):
         redis_client = Mock()
         redis_pipeline = Mock()
         redis_client.pipeline.return_value = redis_pipeline
+        redis_done_ts = stream_job.datetime.fromisoformat("2026-04-08T12:00:10+00:00").timestamp()
 
         with patch.object(stream_job, "STREAM_METRICS_REGISTRY") as mock_registry, patch.object(
             stream_job, "redis"
         ) as mock_redis, patch.object(
-            stream_job.F,
-            "current_timestamp",
-            return_value=stream_job.F.lit("2026-04-08T12:00:10Z").cast("timestamp"),
+            stream_job.time,
+            "time",
+            return_value=redis_done_ts,
         ):
             mock_redis.Redis.return_value = redis_client
             stream_job.write_latest_state_to_redis(batch_df, batch_id=15)

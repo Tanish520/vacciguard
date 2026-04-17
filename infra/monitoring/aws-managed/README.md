@@ -11,6 +11,13 @@ It is the live evaluation stack for EKS runs:
 The comparison dashboard plots baseline and optimized runs on the same panels
 by grouping series on the `pipeline_target` label.
 
+The refreshed dashboard is KPI-first:
+
+- top-row cards for avg, P95, P99, ingest-to-Redis, throughput, and consumer lag
+- quality cards for processed, invalid, dedup, and breach rates
+- recovery cards for pod restarts, active queries, batch durations, and cumulative processed events
+- trend panels below for the latency and event-volume comparisons
+
 Amazon Managed Grafana is provisioned in `ap-southeast-1` for this project.
 The EKS cluster and AMP workspace stay in `ap-south-1`, but you must open the
 Grafana console in the supported Singapore region to view the dashboard.

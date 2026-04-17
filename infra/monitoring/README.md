@@ -36,6 +36,17 @@ Current stream metrics:
 - `vacciguard_stream_breach_events_total`
 - `vacciguard_stream_latest_batch_avg_latency_seconds`
 - `vacciguard_stream_latest_batch_p95_latency_seconds`
+- `vacciguard_stream_latest_batch_p99_latency_seconds`
+- `vacciguard_stream_latest_batch_ingest_to_redis_p95_seconds`
+- `vacciguard_stream_observed_throughput_eps`
+- `vacciguard_stream_hot_batch_duration_seconds`
+- `vacciguard_stream_cold_batch_duration_seconds`
+- `vacciguard_stream_pod_restart_count`
+- `vacciguard_stream_queries_active`
+- `vacciguard_stream_cumulative_processed_events`
+- `vacciguard_stream_latest_batch_event_time_lag_p95_seconds`
+- `vacciguard_stream_watermark_delay_seconds`
+- `vacciguard_stream_consumer_lag_records`
 
 Current replay metrics:
 
@@ -47,13 +58,12 @@ Current replay metrics:
 - `vacciguard_replay_run_started_timestamp_seconds`
 - `vacciguard_replay_completion_timestamp_seconds`
 
-The baseline Grafana dashboard `VacciGuard Baseline Overview` currently shows:
+The baseline Grafana dashboard `VacciGuard Baseline Overview` now uses a KPI-first layout:
 
-- replay sent events
-- replay completion status
-- stream processed, invalid, deduplicated, and breach totals
-- latest batch average latency
-- latest batch P95 latency
+- top-row KPI cards for avg/P95/P99 latency, throughput, consumer lag, and run-level alerts fired
+- a second KPI row for estimated cost per GB, ingest-to-Redis P95, processed volume, and data-quality rates
+- trend panels for latency, throughput vs lag, and quality breakdown
+- a live alerts table so SLA violations are visible directly in Grafana
 
 Deploy and inspect:
 
@@ -75,6 +85,13 @@ Important caveat: the replay producer is a short-lived Kubernetes Job, so its me
 
 Prometheus and Grafana remain the live observability layer during AWS-native evaluation runs.
 The evaluation controller does not replace monitoring. It executes the run inside EKS and writes the formal report to S3 after the run completes.
+
+Prometheus also evaluates a minimal VacciGuard SLA alert rule set for live detection of latency and consumer-lag violations:
+
+- `HighLatency` fires when `vacciguard_stream_latest_batch_avg_latency_seconds > 5`
+- `ConsumerLagBuilding` fires when `vacciguard_stream_consumer_lag_records > 1000`
+
+These rules are intentionally small. They are enough to prove live SLA violation detection without adding a separate notification stack.
 
 When the AWS-managed path is enabled, keep the local stack for development but
 send evaluation runs through the managed bundle under `infra/monitoring/aws-managed`

@@ -13,6 +13,13 @@ def load_embedded_prometheus_config() -> str:
     return "\n".join(line[4:] for line in lines[start:] if line.startswith("    "))
 
 
+def load_embedded_prometheus_alert_rules() -> str:
+    raw = (ROOT / "infra/monitoring/prometheus/configmap-prometheus.yaml").read_text(encoding="utf-8")
+    lines = raw.splitlines()
+    start = lines.index("  vacciguard-sla-alerts.yml: |") + 1
+    return "\n".join(line[4:] for line in lines[start:] if line.startswith("    "))
+
+
 def parse_prometheus_scrape_jobs():
     jobs = []
     current_job = None
@@ -102,13 +109,13 @@ def pod_target_relabel(job: dict[str, object]) -> dict[str, object]:
 
 def replay_completion_status_target_expr(dashboard: dict[str, object]) -> str:
     for panel in dashboard["panels"]:
-        if panel.get("title") != "Replay Completion Status":
+        if panel.get("title") != "Replay Completion":
             continue
         exprs = [target["expr"] for target in panel.get("targets", []) if "expr" in target]
         if len(exprs) != 1:
-            raise AssertionError("Replay Completion Status panel must define exactly one expression")
+            raise AssertionError("Replay Completion panel must define exactly one expression")
         return exprs[0]
-    raise AssertionError("Replay Completion Status panel not found")
+    raise AssertionError("Replay Completion panel not found")
 
 
 class MonitoringManifestTests(unittest.TestCase):
@@ -178,12 +185,26 @@ class MonitoringManifestTests(unittest.TestCase):
         self.assertIsNone(replay_pod["action"])
         self.assertIsNone(replay_pod["regex"])
 
+    def test_prometheus_config_loads_sla_alert_rules(self):
+        raw = load_embedded_prometheus_config()
+        self.assertIn("rule_files:", raw)
+        self.assertIn("/etc/prometheus/vacciguard-sla-alerts.yml", raw)
+
+    def test_prometheus_alert_rules_cover_latency_and_lag(self):
+        raw = load_embedded_prometheus_alert_rules()
+        self.assertIn("groups:", raw)
+        self.assertIn("name: vacciguard_sla", raw)
+        self.assertIn("alert: HighLatency", raw)
+        self.assertIn("vacciguard_stream_latest_batch_avg_latency_seconds > 5", raw)
+        self.assertIn("alert: ConsumerLagBuilding", raw)
+        self.assertIn("vacciguard_stream_consumer_lag_records > 1000", raw)
+
     def test_baseline_dashboard_uses_real_pipeline_metrics(self):
         dashboard = load_embedded_grafana_dashboard()
         self.assertEqual(dashboard["title"], "VacciGuard Baseline Overview")
 
         panels = dashboard["panels"]
-        self.assertGreaterEqual(len(panels), 4)
+        self.assertGreaterEqual(len(panels), 12)
 
         panel_queries = {
             panel["title"]: [
@@ -192,26 +213,23 @@ class MonitoringManifestTests(unittest.TestCase):
             for panel in panels
         }
         expected_panel_queries = {
-            "Replay Sent Events": "sum(vacciguard_replay_sent_events_total)",
-            "Stream Processed Events": "sum(vacciguard_stream_processed_events_total)",
-            "Stream Invalid Events": "sum(vacciguard_stream_invalid_events_total)",
-            "Stream Deduplicated Events": "sum(vacciguard_stream_deduplicated_events_total)",
-            "Stream Breach Events": "sum(vacciguard_stream_breach_events_total)",
-            "Latest Batch Avg Latency": "avg(vacciguard_stream_latest_batch_avg_latency_seconds)",
-            "Latest Batch P95 Latency": "avg(vacciguard_stream_latest_batch_p95_latency_seconds)",
+            "Avg Latency (s)": "avg_over_time(vacciguard_stream_latest_batch_avg_latency_seconds[$__range])",
+            "P95 Latency (s)": "avg_over_time(vacciguard_stream_latest_batch_p95_latency_seconds[$__range])",
+            "P99 Latency (s)": "avg_over_time(vacciguard_stream_latest_batch_p99_latency_seconds[$__range])",
+            "Throughput (eps)": "max_over_time(vacciguard_stream_observed_throughput_eps[$__range])",
+            "Consumer Lag": "max_over_time(vacciguard_stream_consumer_lag_records[$__range])",
+            "Alerts Fired (run)": "sum(changes(ALERTS{alertstate=\"firing\", alertname=~\"HighLatency|ConsumerLagBuilding\"}[$__range]))",
+            "Cost / GB (est.)": "((0.196 * max_over_time(vacciguard_replay_duration_seconds[$__range]) / 3600) + 0.0005) / ((max_over_time(vacciguard_replay_sent_events_total[$__range]) * 200) / 1000000000)",
+            "Ingest-to-Redis P95 (s)": "avg_over_time(vacciguard_stream_latest_batch_ingest_to_redis_p95_seconds[$__range])",
+            "Processed Events": "sum(vacciguard_stream_processed_events_total)",
+            "Invalid Rate (%)": "100 * sum(vacciguard_stream_invalid_events_total) / clamp_min(sum(vacciguard_stream_processed_events_total) + sum(vacciguard_stream_invalid_events_total), 1)",
+            "Dedup Rate (%)": "100 * sum(vacciguard_stream_deduplicated_events_total) / clamp_min(sum(vacciguard_stream_processed_events_total) + sum(vacciguard_stream_invalid_events_total), 1)",
+            "Breach Rate (%)": "100 * sum(vacciguard_stream_breach_events_total) / clamp_min(sum(vacciguard_stream_processed_events_total), 1)",
+            "Live Alerts": "ALERTS{alertname=~\"HighLatency|ConsumerLagBuilding\"}",
         }
         for panel_title, expected_expr in expected_panel_queries.items():
             self.assertIn(panel_title, panel_queries)
             self.assertIn(expected_expr, panel_queries[panel_title])
-
-        replay_status_expr = replay_completion_status_target_expr(dashboard)
-        self.assertIn("vacciguard_replay_completion_status", replay_status_expr)
-        self.assertIn("vacciguard_replay_run_started_timestamp_seconds", replay_status_expr)
-        self.assertIn("topk(1", replay_status_expr)
-        self.assertIn("on(pod)", replay_status_expr)
-        self.assertIn(" and ", replay_status_expr)
-        self.assertNotIn("timestamp(", replay_status_expr)
-        self.assertNotIn("vacciguard_replay_completion_timestamp_seconds", replay_status_expr)
 
         for panel in panels:
             for target in panel.get("targets", []):

@@ -18,6 +18,14 @@ same chart.
 The dashboard should focus on the same metrics produced by the stream processor
 and replay producer so baseline and optimized runs can be compared on one page.
 
+Recommended panels:
+
+- avg, P95, and P99 latency
+- ingest-to-Redis P95
+- observed throughput and consumer lag
+- processed, invalid, dedup, and breach rates
+- pod restarts, active queries, hot/cold batch duration, and cumulative processed events
+
 Open the Grafana workspace in `ap-southeast-1`. AWS Managed Grafana is not
 available in the Mumbai region, so the console must be switched to Singapore
 before you can view or edit the VacciGuard dashboard.
