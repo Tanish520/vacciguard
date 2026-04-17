@@ -307,21 +307,43 @@ class QueryPlanningTests(unittest.TestCase):
         self.assertIs(hot_callback.keywords["lookup_df"], lookup_df)
         self.assertIs(cold_callback.keywords["lookup_df"], lookup_df)
 
-    def test_start_queries_uses_single_query_in_optimized_mode(self):
-        classified_writer = self._make_query_builder()
-        processed_df = Mock(name="processed")
-        invalid_df = Mock(name="invalid")
-        classified_df = Mock(writeStream=classified_writer)
+    def test_start_queries_uses_hot_only_query_in_optimized_hot_role(self):
+        hot_writer = self._make_query_builder()
+        cold_writer = self._make_query_builder()
+        hot_df = Mock(writeStream=hot_writer)
+        cold_df = Mock(writeStream=cold_writer)
         lookup_df = Mock(name="lookup_df")
 
-        with patch.object(stream_job, "pipeline_mode", return_value="optimized"):
-            queries = stream_job.start_queries(processed_df, invalid_df, classified_df, lookup_df)
+        with patch.object(stream_job, "pipeline_mode", return_value="optimized"), patch.object(
+            stream_job, "pipeline_service_role", return_value="hot"
+        ):
+            queries = stream_job.start_queries(hot_df, cold_df, lookup_df)
 
         self.assertEqual(len(queries), 1)
-        optimized_callback = classified_writer.foreachBatch.call_args.args[0]
-        self.assertIsInstance(optimized_callback, functools.partial)
-        self.assertIs(optimized_callback.func, stream_job.write_optimized_batch)
-        self.assertIs(optimized_callback.keywords["lookup_df"], lookup_df)
+        hot_callback = hot_writer.foreachBatch.call_args.args[0]
+        self.assertIsInstance(hot_callback, functools.partial)
+        self.assertIs(hot_callback.func, stream_job.write_hot_batch)
+        self.assertIs(hot_callback.keywords["lookup_df"], lookup_df)
+        cold_writer.foreachBatch.assert_not_called()
+
+    def test_start_queries_uses_cold_only_query_in_optimized_cold_role(self):
+        hot_writer = self._make_query_builder()
+        cold_writer = self._make_query_builder()
+        hot_df = Mock(writeStream=hot_writer)
+        cold_df = Mock(writeStream=cold_writer)
+        lookup_df = Mock(name="lookup_df")
+
+        with patch.object(stream_job, "pipeline_mode", return_value="optimized"), patch.object(
+            stream_job, "pipeline_service_role", return_value="cold"
+        ):
+            queries = stream_job.start_queries(hot_df, cold_df, lookup_df)
+
+        self.assertEqual(len(queries), 1)
+        cold_callback = cold_writer.foreachBatch.call_args.args[0]
+        self.assertIsInstance(cold_callback, functools.partial)
+        self.assertIs(cold_callback.func, stream_job.write_cold_batch)
+        self.assertIs(cold_callback.keywords["lookup_df"], lookup_df)
+        hot_writer.foreachBatch.assert_not_called()
 
     def test_record_batch_offsets_tracks_latest_partition_offsets(self):
         batch_schema = T.StructType(
@@ -417,14 +439,13 @@ class MainLifecycleTests(unittest.TestCase):
         metrics_server.shutdown.assert_called_once_with()
         metrics_server.server_close.assert_called_once_with()
 
-    def test_main_uses_single_query_in_optimized_mode(self):
+    def test_main_uses_hot_and_cold_streams_in_optimized_hot_role(self):
         metrics_server = Mock()
         metrics_server.server_address = ("0.0.0.0", 9108)
         spark = Mock()
         lookup_df = Mock(name="lookup_df")
         lookup_df.cache.return_value = lookup_df
         lookup_df.count.return_value = 1
-        build_output_streams = Mock(return_value=("processed", "invalid"))
         start_queries = Mock(return_value=["query"])
 
         with patch.object(stream_job, "ensure_local_paths"), patch.object(
@@ -436,11 +457,11 @@ class MainLifecycleTests(unittest.TestCase):
         ), patch.object(
             stream_job, "load_lookup", return_value=lookup_df
         ), patch.object(
-            stream_job, "build_stream", return_value="classified"
+            stream_job, "build_stream", side_effect=["hot-classified", "cold-classified"]
         ), patch.object(
             stream_job, "pipeline_mode", return_value="optimized"
         ), patch.object(
-            stream_job, "build_output_streams", build_output_streams
+            stream_job, "pipeline_service_role", return_value="hot"
         ), patch.object(
             stream_job, "_start_consumer_lag_thread", return_value=Mock()
         ), patch.object(
@@ -448,10 +469,43 @@ class MainLifecycleTests(unittest.TestCase):
         ):
             stream_job.main()
 
-        build_output_streams.assert_not_called()
         lookup_df.cache.assert_called_once_with()
         lookup_df.count.assert_called_once_with()
-        start_queries.assert_called_once_with(None, None, "classified", lookup_df)
+        start_queries.assert_called_once_with("hot-classified", "cold-classified", lookup_df)
+        metrics_server.shutdown.assert_called_once_with()
+        metrics_server.server_close.assert_called_once_with()
+
+    def test_main_uses_hot_and_cold_streams_in_optimized_cold_role(self):
+        metrics_server = Mock()
+        metrics_server.server_address = ("0.0.0.0", 9108)
+        spark = Mock()
+        lookup_df = Mock(name="lookup_df")
+        lookup_df.cache.return_value = lookup_df
+        lookup_df.count.return_value = 1
+        start_queries = Mock(return_value=["query"])
+
+        with patch.object(stream_job, "ensure_local_paths"), patch.object(
+            stream_job, "ensure_kafka_topic"
+        ), patch.object(
+            stream_job, "start_metrics_server", return_value=metrics_server
+        ), patch.object(
+            stream_job, "build_spark", return_value=spark
+        ), patch.object(
+            stream_job, "load_lookup", return_value=lookup_df
+        ), patch.object(
+            stream_job, "build_stream", side_effect=["hot-classified", "cold-classified"]
+        ), patch.object(
+            stream_job, "pipeline_mode", return_value="optimized"
+        ), patch.object(
+            stream_job, "pipeline_service_role", return_value="cold"
+        ), patch.object(
+            stream_job, "_start_consumer_lag_thread", return_value=Mock()
+        ), patch.object(
+            stream_job, "start_queries", start_queries
+        ):
+            stream_job.main()
+
+        start_queries.assert_called_once_with("hot-classified", "cold-classified", lookup_df)
         metrics_server.shutdown.assert_called_once_with()
         metrics_server.server_close.assert_called_once_with()
 

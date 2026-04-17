@@ -334,6 +334,10 @@ def pipeline_mode() -> str:
     return os.environ.get("PIPELINE_MODE", PIPELINE_MODE).strip().lower()
 
 
+def pipeline_service_role() -> str:
+    return os.environ.get("PIPELINE_SERVICE_ROLE", "monolith").strip().lower()
+
+
 def record_batch_offsets(batch_df: DataFrame) -> None:
     """Record the latest processed offset per partition for background lag computation."""
     if "partition" not in batch_df.columns or "offset" not in batch_df.columns:
@@ -1591,7 +1595,7 @@ def start_queries(*args):
     else:
         raise TypeError(f"start_queries() expected 3 or 4 positional arguments, got {len(args)}")
 
-    if pipeline_mode() == "optimized":
+    if pipeline_mode() == "optimized" and pipeline_service_role() == "monolith":
         optimized_query = (
             hot_classified.writeStream.foreachBatch(
                 functools.partial(write_optimized_batch, lookup_df=lookup_df)
@@ -1602,6 +1606,36 @@ def start_queries(*args):
             .start()
         )
         return [optimized_query]
+
+    if pipeline_mode() == "optimized" and pipeline_service_role() == "hot":
+        hot_query = (
+            hot_classified.writeStream.foreachBatch(
+                functools.partial(write_hot_batch, lookup_df=lookup_df)
+            )
+            .outputMode("append")
+            .option("checkpointLocation", os.path.join(CHECKPOINT_ROOT, "optimized_hot"))
+            .trigger(processingTime=TRIGGER_INTERVAL)
+            .start()
+        )
+        STREAM_METRICS_REGISTRY.update_queries_active(
+            sum(1 for query in (hot_query,) if getattr(query, "isActive", False))
+        )
+        return [hot_query]
+
+    if pipeline_mode() == "optimized" and pipeline_service_role() == "cold":
+        cold_query = (
+            cold_classified.writeStream.foreachBatch(
+                functools.partial(write_cold_batch, lookup_df=lookup_df)
+            )
+            .outputMode("append")
+            .option("checkpointLocation", os.path.join(CHECKPOINT_ROOT, "optimized_cold"))
+            .trigger(processingTime=COLD_TRIGGER_INTERVAL)
+            .start()
+        )
+        STREAM_METRICS_REGISTRY.update_queries_active(
+            sum(1 for query in (cold_query,) if getattr(query, "isActive", False))
+        )
+        return [cold_query]
 
     hot_query = (
         hot_classified.writeStream.foreachBatch(
@@ -1645,8 +1679,11 @@ def main() -> None:
         # Cold stream: uncapped (or COLD_MAX_OFFSETS_PER_TRIGGER) so the 30s trigger
         # can drain the full accumulated window without falling behind.
         if pipeline_mode() == "optimized":
-            classified = build_stream(spark)
-            queries = start_queries(None, None, classified, lookup_df)
+            hot_classified = build_stream(spark)
+            cold_classified = build_stream(
+                spark, max_offsets_per_trigger=COLD_MAX_OFFSETS_PER_TRIGGER
+            )
+            queries = start_queries(hot_classified, cold_classified, lookup_df)
         else:
             hot_classified = build_stream(spark)
             cold_classified = build_stream(spark, max_offsets_per_trigger=COLD_MAX_OFFSETS_PER_TRIGGER)
