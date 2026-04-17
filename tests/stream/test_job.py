@@ -847,7 +847,34 @@ class ProcessedBatchWriteTests(unittest.TestCase):
 
         self.assertTrue(breach_files)
 
-    def test_write_latest_state_to_redis_updates_ingest_to_redis_metric(self):
+    def test_write_latest_state_to_redis_publishes_summarized_metrics(self):
+        latest_rows = Mock()
+        latest_rows.persist.return_value = latest_rows
+        latest_rows.foreachPartition = Mock()
+        latest_rows.unpersist = Mock()
+
+        with patch.object(stream_job, "reduce_latest_state_rows", return_value=latest_rows), patch.object(
+            stream_job,
+            "summarize_latest_state_metrics",
+            return_value=(2, 4.0, 3.5, 4.0, 4.5),
+        ), patch.object(stream_job, "STREAM_METRICS_REGISTRY") as mock_registry, patch.object(
+            stream_job.time,
+            "time",
+            return_value=1712577610.0,
+        ):
+            written = stream_job.write_latest_state_to_redis(Mock(), batch_id=15)
+
+        self.assertEqual(written, 2)
+        mock_registry.update_redis_metrics.assert_called_once_with(
+            ingest_to_redis_p95_seconds=4.0
+        )
+        mock_registry.update_hot_latency_metrics.assert_called_once_with(
+            avg_latency_seconds=3.5,
+            p95_latency_seconds=4.0,
+            p99_latency_seconds=4.5,
+        )
+
+    def test_reduce_latest_state_rows_uses_grouped_latest_row_plan(self):
         batch_df = self.spark.createDataFrame(
             [
                 {
@@ -869,27 +896,59 @@ class ProcessedBatchWriteTests(unittest.TestCase):
                     "event_ts": "2026-04-08T12:00:00Z",
                     "kafka_ingest_ts": "2026-04-08T12:00:02Z",
                     "offset": 1,
-                }
+                },
+                {
+                    "device_id": "FR-0102",
+                    "event_id": "evt-002",
+                    "event_time": "2026-04-08T12:00:01Z",
+                    "replay_sent_at": "2026-04-08T12:00:07Z",
+                    "temperature_c": 4.5,
+                    "door_open": False,
+                    "battery_pct": 87,
+                    "facility_id": "FAC-0002",
+                    "facility_name": "Clinic B",
+                    "district": "Udaipur",
+                    "state": "Rajasthan",
+                    "storage_type": "refrigerator",
+                    "min_temp_c": 2.0,
+                    "max_temp_c": 8.0,
+                    "breach_status": "safe",
+                    "event_ts": "2026-04-08T12:00:01Z",
+                    "kafka_ingest_ts": "2026-04-08T12:00:03Z",
+                    "offset": 2,
+                },
             ]
         ).withColumn("event_ts", F.to_timestamp("event_ts")).withColumn(
             "kafka_ingest_ts", F.to_timestamp("kafka_ingest_ts")
         )
 
-        redis_client = Mock()
-        redis_pipeline = Mock()
-        redis_client.pipeline.return_value = redis_pipeline
-        redis_done_ts = stream_job.datetime.fromisoformat("2026-04-08T12:00:10+00:00").timestamp()
+        reduced = stream_job.reduce_latest_state_rows(batch_df)
+        optimized_plan = reduced._jdf.queryExecution().optimizedPlan().toString()
 
-        with patch.object(stream_job, "STREAM_METRICS_REGISTRY") as mock_registry, patch.object(
-            stream_job, "redis"
-        ) as mock_redis, patch.object(
+        self.assertEqual(reduced.columns, batch_df.columns)
+        self.assertIn("Aggregate", optimized_plan)
+        self.assertNotIn("Window", optimized_plan)
+
+    def test_write_latest_state_to_redis_uses_partition_writer(self):
+        latest_rows = Mock()
+        latest_rows.persist.return_value = latest_rows
+        latest_rows.foreachPartition = Mock()
+        latest_rows.unpersist = Mock()
+
+        with patch.object(stream_job, "reduce_latest_state_rows", return_value=latest_rows), patch.object(
+            stream_job,
+            "summarize_latest_state_metrics",
+            return_value=(2, 4.0, 4.0, 4.0, 4.0),
+        ), patch.object(stream_job, "STREAM_METRICS_REGISTRY") as mock_registry, patch.object(
             stream_job.time,
             "time",
-            return_value=redis_done_ts,
+            return_value=1712577610.0,
         ):
-            mock_redis.Redis.return_value = redis_client
-            stream_job.write_latest_state_to_redis(batch_df, batch_id=15)
+            written = stream_job.write_latest_state_to_redis(Mock(), batch_id=7)
 
+        latest_rows.foreachPartition.assert_called_once()
+        latest_rows.unpersist.assert_called_once_with()
+        self.assertEqual(written, 2)
         mock_registry.update_redis_metrics.assert_called_once_with(
             ingest_to_redis_p95_seconds=4.0
         )
