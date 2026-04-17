@@ -41,6 +41,7 @@ STREAM_METRICS_PORT = int(os.environ.get("STREAM_METRICS_PORT", "9108"))
 STREAM_METRICS_TIMEOUT_SECONDS = int(
     os.environ.get("STREAM_METRICS_TIMEOUT_SECONDS", "5")
 )
+OPTIMIZED_SERVICE_ROLES = ("hot", "cold")
 
 
 def load_kubernetes_dependencies():
@@ -78,11 +79,25 @@ def read_pipeline_config():
     return core_api().read_namespaced_config_map(PIPELINE_CONFIG_NAME, NAMESPACE)
 
 
-def latest_stream_pod():
+def stream_label_selector(contract: controller.RunContract, service_role: str | None = None) -> str:
+    if contract.pipeline_target == "optimized" and service_role in OPTIMIZED_SERVICE_ROLES:
+        return f"app=stream-processor-{service_role}"
+    return "app=stream-processor"
+
+
+def stream_deployment_names(contract: controller.RunContract) -> tuple[str, ...]:
+    if contract.pipeline_target == "optimized":
+        return tuple(f"stream-processor-{role}" for role in OPTIMIZED_SERVICE_ROLES)
+    return (STREAM_DEPLOYMENT_NAME,)
+
+
+def latest_stream_pod(contract: controller.RunContract, service_role: str | None = None):
     pods = core_api().list_namespaced_pod(
-        NAMESPACE, label_selector="app=stream-processor"
+        NAMESPACE, label_selector=stream_label_selector(contract, service_role)
     ).items
     if not pods:
+        if contract.pipeline_target == "optimized" and service_role in OPTIMIZED_SERVICE_ROLES:
+            raise RuntimeError(f"No optimized {service_role} stream-processor pods found")
         raise RuntimeError("No stream-processor pods found")
     return max(pods, key=lambda pod: pod.metadata.creation_timestamp or datetime.min.replace(tzinfo=timezone.utc))
 
@@ -185,35 +200,41 @@ def patch_pipeline_config(contract: controller.RunContract) -> None:
 
 
 def restart_stream_processor(contract: controller.RunContract) -> None:
-    apps_api().patch_namespaced_deployment(
-        STREAM_DEPLOYMENT_NAME,
-        NAMESPACE,
-        {
-            "spec": {
-                "template": {
-                    "metadata": {
-                        "annotations": {
-                            "kubectl.kubernetes.io/restartedAt": now_utc().isoformat()
+    for deployment_name in stream_deployment_names(contract):
+        apps_api().patch_namespaced_deployment(
+            deployment_name,
+            NAMESPACE,
+            {
+                "spec": {
+                    "template": {
+                        "metadata": {
+                            "annotations": {
+                                "kubectl.kubernetes.io/restartedAt": now_utc().isoformat()
+                            }
                         }
                     }
                 }
-            }
-        },
-    )
+            },
+        )
 
 
-def wait_for_stream_ready(contract: controller.RunContract) -> None:
+def wait_for_stream_ready(contract: controller.RunContract, service_role: str | None = None) -> None:
     deadline = time.time() + STREAM_READY_TIMEOUT_SECONDS
     ready_since = None
     last_logs = ""
+    deployment_name = (
+        f"stream-processor-{service_role}"
+        if contract.pipeline_target == "optimized" and service_role in OPTIMIZED_SERVICE_ROLES
+        else STREAM_DEPLOYMENT_NAME
+    )
 
     while time.time() < deadline:
         deployment = apps_api().read_namespaced_deployment(
-            STREAM_DEPLOYMENT_NAME,
+            deployment_name,
             NAMESPACE,
         )
         available = deployment.status.available_replicas or 0
-        pod = latest_stream_pod()
+        pod = latest_stream_pod(contract, service_role)
         ready = any(
             condition.type == "Ready" and condition.status == "True"
             for condition in (pod.status.conditions or [])
@@ -337,16 +358,18 @@ def collect_replay_logs(contract: controller.RunContract) -> str:
     return core_api().read_namespaced_pod_log(pod.metadata.name, NAMESPACE)
 
 
-def collect_stream_logs(contract: controller.RunContract) -> str:
-    pod = latest_stream_pod()
+def collect_stream_logs(contract: controller.RunContract, service_role: str | None = None) -> str:
+    pod = latest_stream_pod(contract, service_role)
     return core_api().read_namespaced_pod_log(
         pod.metadata.name,
         NAMESPACE,
     )
 
 
-def collect_stream_metrics_payload(contract: controller.RunContract) -> str:
-    pod = latest_stream_pod()
+def collect_stream_metrics_payload(
+    contract: controller.RunContract, service_role: str | None = None
+) -> str:
+    pod = latest_stream_pod(contract, service_role)
     pod_ip = getattr(pod.status, "pod_ip", None)
     if not pod_ip:
         return ""
@@ -368,6 +391,7 @@ def collect_stream_metrics_payload(contract: controller.RunContract) -> str:
 def wait_for_stream_metrics_settlement(
     contract: controller.RunContract,
     replay_logs: str,
+    service_role: str | None = None,
 ) -> str:
     deadline = time.time() + POST_REPLAY_SETTLE_TIMEOUT_SECONDS
     expected_input_events = controller.aws_baseline_metrics.extract_metrics(
@@ -379,7 +403,7 @@ def wait_for_stream_metrics_settlement(
     latest_payload = ""
 
     while time.time() < deadline:
-        latest_payload = collect_stream_metrics_payload(contract)
+        latest_payload = collect_stream_metrics_payload(contract, service_role=service_role)
         metrics = controller.aws_baseline_metrics.extract_metrics(
             replay_logs,
             "",
@@ -444,32 +468,61 @@ def run_orchestration(contract: controller.RunContract) -> dict[str, object]:
     reset_redis_state()
     patch_pipeline_config(contract)
     restart_stream_processor(contract)
-    wait_for_stream_ready(contract)
+    if contract.pipeline_target == "optimized":
+        for service_role in OPTIMIZED_SERVICE_ROLES:
+            wait_for_stream_ready(contract, service_role=service_role)
+    else:
+        wait_for_stream_ready(contract)
     launch_replay_job(contract)
     wait_for_replay_completion(contract)
     replay_logs = collect_replay_logs(contract)
+    artifact_summary = summarize_s3_outputs(contract)
+    metadata = {
+        "pipeline_target": contract.pipeline_target,
+        "scenario": contract.scenario,
+        "workload_family_version": contract.workload_family_version,
+        "configured_events_per_second": load_workload_inputs(contract)[1][
+            "target_eps"
+        ],
+        "workload_duration_minutes": load_workload_inputs(contract)[1][
+            "duration_minutes"
+        ],
+        "pipeline_success": True,
+        "controller_job_success": True,
+        "replay_job_success": True,
+    }
+    if contract.pipeline_target == "optimized":
+        cold_metrics_payload = wait_for_stream_metrics_settlement(
+            contract,
+            replay_logs,
+            service_role="cold",
+        )
+        hot_metrics_payload = collect_stream_metrics_payload(contract, service_role="hot")
+        hot_logs = collect_stream_logs(contract, service_role="hot")
+        cold_logs = collect_stream_logs(contract, service_role="cold")
+        hot_metrics = controller.aws_baseline_metrics.extract_metrics(
+            replay_logs,
+            hot_logs,
+            stream_metrics_payload=hot_metrics_payload,
+        )
+        cold_metrics = controller.aws_baseline_metrics.extract_metrics(
+            replay_logs,
+            cold_logs,
+            stream_metrics_payload=cold_metrics_payload,
+        )
+        merged_metrics = controller.merge_optimized_metrics(hot_metrics, cold_metrics)
+        merged_metrics.update(artifact_summary)
+        merged_metrics.update(metadata)
+        return merged_metrics
+
     stream_metrics_payload = wait_for_stream_metrics_settlement(contract, replay_logs)
     stream_logs = collect_stream_logs(contract)
-    artifact_summary = summarize_s3_outputs(contract)
     return controller.extract_metrics_from_logs(
         replay_logs,
         stream_logs,
         stream_metrics_payload,
         artifact_summary,
-        {
-            "pipeline_target": contract.pipeline_target,
-            "scenario": contract.scenario,
-            "workload_family_version": contract.workload_family_version,
-            "configured_events_per_second": load_workload_inputs(contract)[1][
-                "target_eps"
-            ],
-            "workload_duration_minutes": load_workload_inputs(contract)[1][
-                "duration_minutes"
-            ],
-            "pipeline_success": True,
-            "controller_job_success": True,
-            "replay_job_success": True,
-        },
+        metadata,
     )
 
 

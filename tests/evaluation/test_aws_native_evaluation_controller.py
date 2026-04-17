@@ -569,6 +569,29 @@ class ControllerMainTests(unittest.TestCase):
 
 
 class OrchestrationFlowTests(unittest.TestCase):
+    def test_merge_optimized_metrics_prefers_hot_owned_latency_fields(self):
+        hot_metrics = {
+            "avg_end_to_end_latency_seconds": 3.4,
+            "p95_end_to_end_latency_seconds": 4.1,
+            "ingest_to_redis_p95_seconds": 4.0,
+            "hot_batch_duration_seconds": 0.9,
+        }
+        cold_metrics = {
+            "processed_events": 323000,
+            "invalid_events": 6000,
+            "deduplicated_events": 700,
+            "breach_events": 4900,
+            "avg_end_to_end_latency_seconds": 91.0,
+        }
+
+        merged = controller.merge_optimized_metrics(hot_metrics, cold_metrics)
+
+        self.assertEqual(merged["avg_end_to_end_latency_seconds"], 3.4)
+        self.assertEqual(merged["processed_events"], 323000)
+        self.assertEqual(merged["hot_batch_duration_seconds"], 0.9)
+        self.assertNotIn("hot_metrics", merged)
+        self.assertNotIn("cold_metrics", merged)
+
     def test_extract_metrics_from_logs_merges_metadata(self):
         with mock.patch.object(
             controller.aws_baseline_metrics,
@@ -593,9 +616,95 @@ class OrchestrationFlowTests(unittest.TestCase):
             stream_metrics_payload="prometheus",
         )
         self.assertEqual(metrics["processed_events"], 27)
+
+    def test_run_orchestration_merges_hot_and_cold_metrics_for_optimized(self):
+        controller_main = load_module(
+            "evaluation_controller_main_orchestration_optimized",
+            "services/evaluation-controller/main.py",
+        )
+
+        contract = controller.resolve_run_contract(
+            pipeline_target="optimized",
+            scenario="spike",
+            run_id="run-optimized-merge",
+            workload_family_version="evaluation-workload-v1",
+            bucket_name="vacciguard-baseline-data",
+        )
+
+        with mock.patch.object(controller_main, "reset_redis_state"), \
+            mock.patch.object(controller_main, "patch_pipeline_config"), \
+            mock.patch.object(controller_main, "restart_stream_processor"), \
+            mock.patch.object(controller_main, "wait_for_stream_ready"), \
+            mock.patch.object(controller_main, "launch_replay_job"), \
+            mock.patch.object(controller_main, "wait_for_replay_completion"), \
+            mock.patch.object(
+                controller_main,
+                "load_workload_inputs",
+                return_value=(
+                    "workload",
+                    {
+                        "target_eps": 1000.0,
+                        "duration_minutes": 3,
+                        "event_count": 198000,
+                    },
+                ),
+            ), \
+            mock.patch.object(
+                controller_main, "collect_replay_logs", return_value="replay"
+            ), \
+            mock.patch.object(
+                controller_main,
+                "wait_for_stream_metrics_settlement",
+                return_value="cold-prometheus",
+            ) as mock_settlement, \
+            mock.patch.object(
+                controller_main,
+                "collect_stream_metrics_payload",
+                return_value="hot-prometheus",
+            ) as mock_collect_metrics, \
+            mock.patch.object(
+                controller_main,
+                "collect_stream_logs",
+                side_effect=["hot-stream", "cold-stream"],
+            ) as mock_collect_logs, \
+            mock.patch.object(
+                controller_main,
+                "summarize_s3_outputs",
+                return_value={
+                    "processed_output_objects": 52,
+                    "invalid_output_objects": 6,
+                    "breach_window_output_objects": 52,
+                },
+            ), \
+            mock.patch.object(
+                controller_main.controller.aws_baseline_metrics,
+                "extract_metrics",
+                side_effect=[
+                    {
+                        "avg_end_to_end_latency_seconds": 3.4,
+                        "p95_end_to_end_latency_seconds": 4.1,
+                        "ingest_to_redis_p95_seconds": 4.0,
+                        "hot_batch_duration_seconds": 0.9,
+                    },
+                    {
+                        "processed_events": 323000,
+                        "invalid_events": 6000,
+                        "deduplicated_events": 700,
+                        "breach_events": 4900,
+                    },
+                ],
+            ):
+            metrics = controller_main.run_orchestration(contract)
+
+        mock_settlement.assert_called_once_with(contract, "replay", service_role="cold")
+        mock_collect_metrics.assert_called_once_with(contract, service_role="hot")
+        self.assertEqual(mock_collect_logs.call_args_list[0].kwargs["service_role"], "hot")
+        self.assertEqual(mock_collect_logs.call_args_list[1].kwargs["service_role"], "cold")
+        self.assertEqual(metrics["avg_end_to_end_latency_seconds"], 3.4)
+        self.assertEqual(metrics["processed_events"], 323000)
         self.assertEqual(metrics["processed_output_objects"], 52)
-        self.assertEqual(metrics["pipeline_target"], "baseline")
-        self.assertEqual(metrics["scenario"], "normal")
+        self.assertEqual(metrics["pipeline_target"], "optimized")
+        self.assertEqual(metrics["scenario"], "spike")
         self.assertEqual(
             metrics["workload_family_version"], "evaluation-workload-v1"
         )

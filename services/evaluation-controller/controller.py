@@ -39,6 +39,14 @@ RESERVED_REPORT_KEYS = {
     "status",
     "failure_reason",
 }
+HOT_OWNED_OPTIMIZED_METRIC_KEYS = (
+    "avg_end_to_end_latency_seconds",
+    "p95_end_to_end_latency_seconds",
+    "p99_end_to_end_latency_seconds",
+    "ingest_to_redis_p95_seconds",
+    "hot_batch_duration_seconds",
+    "observed_throughput_eps",
+)
 
 
 @dataclass(frozen=True)
@@ -127,6 +135,19 @@ def extract_metrics_from_logs(
     metrics.update(artifact_summary)
     metrics.update(metadata)
     return metrics
+
+
+def merge_optimized_metrics(
+    hot_metrics: dict[str, object],
+    cold_metrics: dict[str, object],
+) -> dict[str, object]:
+    merged = dict(cold_metrics)
+    for key in HOT_OWNED_OPTIMIZED_METRIC_KEYS:
+        if key in hot_metrics:
+            merged[key] = hot_metrics[key]
+    if "stream_metrics_source" not in merged and "stream_metrics_source" in hot_metrics:
+        merged["stream_metrics_source"] = hot_metrics["stream_metrics_source"]
+    return merged
 
 
 def build_workload_configmap_manifest(
