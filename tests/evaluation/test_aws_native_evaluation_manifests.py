@@ -29,7 +29,7 @@ class AwsNativeEvaluationManifestTests(unittest.TestCase):
         self.assertIn("value: orchestrate", raw)
         self.assertIn("value: vacciguard-tanish-baseline-ap-south-1-data", raw)
         self.assertIn(
-            "image: 347038623570.dkr.ecr.ap-south-1.amazonaws.com/vacciguard-evaluation-controller:reporting-20260415t221504z-amd64",
+            "image: 347038623570.dkr.ecr.ap-south-1.amazonaws.com/vacciguard-evaluation-controller:",
             raw,
         )
         self.assertNotIn(":latest", raw)
@@ -110,3 +110,21 @@ class AwsNativeEvaluationManifestTests(unittest.TestCase):
         self.assertIn("TRIGGER_INTERVAL: 1 seconds", configmap_raw)
         self.assertIn('MAX_OFFSETS_PER_TRIGGER: "2000"', configmap_raw)
         self.assertIn("PIPELINE_MODE: optimized", configmap_raw)
+
+    def test_optimized_overlay_defines_split_hot_and_cold_services(self):
+        kustomization_raw = (
+            ROOT / "infra/kubernetes/optimized/kustomization.yaml"
+        ).read_text(encoding="utf-8")
+        hot_configmap_raw = (
+            ROOT / "infra/kubernetes/optimized/configmap-pipeline-hot.yaml"
+        ).read_text(encoding="utf-8")
+        cold_configmap_raw = (
+            ROOT / "infra/kubernetes/optimized/configmap-pipeline-cold.yaml"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("deployment-stream-processor-hot.yaml", kustomization_raw)
+        self.assertIn("deployment-stream-processor-cold.yaml", kustomization_raw)
+        self.assertIn("PIPELINE_MODE: optimized", hot_configmap_raw)
+        self.assertIn("PIPELINE_SERVICE_ROLE: hot", hot_configmap_raw)
+        self.assertIn('MAX_OFFSETS_PER_TRIGGER: "2000"', hot_configmap_raw)
+        self.assertIn("PIPELINE_SERVICE_ROLE: cold", cold_configmap_raw)

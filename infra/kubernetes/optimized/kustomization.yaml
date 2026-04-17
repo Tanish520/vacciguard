@@ -1,8 +1,15 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-  - ../baseline
+  - ../base
+  - configmap-pipeline-hot.yaml
+  - configmap-pipeline-cold.yaml
+  - deployment-stream-processor-hot.yaml
+  - deployment-stream-processor-cold.yaml
 patches:
+  - path: delete-stream-processor.yaml
   - path: configmap-pipeline.yaml
+  - path: serviceaccount-pipeline-patch.yaml
   - path: patch-kafka-resources.yaml
-  - path: patch-stream-processor-resources.yaml
+  - path: patch-optimized-hot-resources.yaml
+  - path: patch-optimized-cold-resources.yaml
