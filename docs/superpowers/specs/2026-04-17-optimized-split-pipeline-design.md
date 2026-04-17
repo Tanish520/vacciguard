@@ -84,9 +84,10 @@ Responsibilities:
 - consume Kafka telemetry
 - validate records needed for real-time state
 - deduplicate events
-- compute latest state per device
+- remove or materially raise the hot-path Kafka intake cap so spike throughput is not artificially limited by `MAX_OFFSETS_PER_TRIGGER`
+- compute latest state per device using a grouped latest-row reduction rather than a windowed `row_number()` sort
 - compute breach status for live state
-- write latest device state to Redis
+- write latest device state to Redis using partition-local Redis pipelines after latest-state reduction, not a driver-side `toLocalIterator()` loop
 - publish SLA latency metrics
 
 Non-responsibilities:
@@ -139,6 +140,8 @@ Key design intent:
 - keep the hot path minimal
 - avoid any S3 writes
 - keep ownership of end-to-end latency in the hot service only
+- tune hot intake explicitly for spike handling, including a higher or removed `MAX_OFFSETS_PER_TRIGGER` and a faster trigger cadence
+- replace driver-heavy latest-state and Redis-write steps with distributed executor-side work where safe
 
 ### Cold Path
 
@@ -208,8 +211,9 @@ Controller changes required:
 
 - restart both optimized deployments together
 - wait for both optimized services to become ready
-- collect metrics from the hot service for SLA latency
-- collect archive/count state from the cold service where needed
+- collect latency metrics from the hot service only
+- collect archive/count state from the cold service only
+- merge hot-owned and cold-owned metrics into one unified optimized evaluation report without changing the external report schema
 - continue generating one optimized report
 
 The reporting flow must not require downstream documentation or dashboard changes.
@@ -309,6 +313,9 @@ Included:
 - controller changes for dual optimized services
 - resource tuning and optional compute increase
 - metrics ownership cleanup
+- hot-path intake-cap changes for spike throughput
+- replacement of driver-side Redis writes with partition-local Redis pipelines
+- replacement of window-based latest-state selection in the hot path with a cheaper grouped latest-row strategy
 
 Not included:
 
