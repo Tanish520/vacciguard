@@ -56,6 +56,58 @@ def test_build_daily_compliance_summary():
     assert summary.iloc[0]["unique_devices_seen"] == 2
 
 
+def test_build_daily_device_compliance_summary():
+    processed = pd.DataFrame(
+        [
+            {
+                "event_date": "2026-04-17",
+                "facility_id": "fac-1",
+                "facility_name": "Clinic A",
+                "district": "District 1",
+                "state": "State X",
+                "storage_type": "cold_room",
+                "device_id": "FR-0101",
+                "temperature_c": 4.0,
+                "breach_status": "safe",
+            },
+            {
+                "event_date": "2026-04-17",
+                "facility_id": "fac-1",
+                "facility_name": "Clinic A",
+                "district": "District 1",
+                "state": "State X",
+                "storage_type": "cold_room",
+                "device_id": "FR-0101",
+                "temperature_c": 8.5,
+                "breach_status": "breach",
+            },
+        ]
+    )
+
+    summary = batch_job.build_daily_device_compliance_summary(processed)
+
+    assert list(summary.columns) == [
+        "event_date",
+        "facility_id",
+        "facility_name",
+        "district",
+        "state",
+        "storage_type",
+        "device_id",
+        "total_processed_events",
+        "safe_events",
+        "breach_events",
+        "breach_rate_pct",
+        "avg_temperature_c",
+        "min_temperature_c",
+        "max_temperature_c",
+    ]
+    assert len(summary) == 1
+    assert summary.iloc[0]["device_id"] == "FR-0101"
+    assert summary.iloc[0]["breach_events"] == 1
+    assert summary.iloc[0]["breach_rate_pct"] == 50.0
+
+
 def test_build_daily_audit_summary():
     invalid = pd.DataFrame(
         [

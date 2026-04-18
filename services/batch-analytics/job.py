@@ -34,6 +34,35 @@ COMPLIANCE_OUTPUT_COLUMNS = [
     "unique_devices_seen",
 ]
 
+DEVICE_COMPLIANCE_COLUMNS = [
+    "event_date",
+    "facility_id",
+    "facility_name",
+    "district",
+    "state",
+    "storage_type",
+    "device_id",
+    "temperature_c",
+    "breach_status",
+]
+
+DEVICE_COMPLIANCE_OUTPUT_COLUMNS = [
+    "event_date",
+    "facility_id",
+    "facility_name",
+    "district",
+    "state",
+    "storage_type",
+    "device_id",
+    "total_processed_events",
+    "safe_events",
+    "breach_events",
+    "breach_rate_pct",
+    "avg_temperature_c",
+    "min_temperature_c",
+    "max_temperature_c",
+]
+
 AUDIT_INVALID_COLUMNS = [
     "event_date",
     "invalid_reason",
@@ -102,6 +131,38 @@ def build_daily_compliance_summary(processed: pd.DataFrame) -> pd.DataFrame:
         summary["breach_events"] / summary["total_processed_events"] * 100.0
     ).round(2)
     return summary[COMPLIANCE_OUTPUT_COLUMNS]
+
+
+def build_daily_device_compliance_summary(processed: pd.DataFrame) -> pd.DataFrame:
+    processed = ensure_columns(processed.copy(), DEVICE_COMPLIANCE_COLUMNS)
+
+    summary = (
+        processed.groupby(
+            [
+                "event_date",
+                "facility_id",
+                "facility_name",
+                "district",
+                "state",
+                "storage_type",
+                "device_id",
+            ],
+            dropna=False,
+        )
+        .agg(
+            total_processed_events=("device_id", "size"),
+            safe_events=("breach_status", lambda values: int((values == "safe").sum())),
+            breach_events=("breach_status", lambda values: int((values == "breach").sum())),
+            avg_temperature_c=("temperature_c", "mean"),
+            min_temperature_c=("temperature_c", "min"),
+            max_temperature_c=("temperature_c", "max"),
+        )
+        .reset_index()
+    )
+    summary["breach_rate_pct"] = (
+        summary["breach_events"] / summary["total_processed_events"] * 100.0
+    ).round(2)
+    return summary[DEVICE_COMPLIANCE_OUTPUT_COLUMNS]
 
 
 def build_daily_audit_summary(
