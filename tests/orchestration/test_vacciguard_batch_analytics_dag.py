@@ -12,6 +12,7 @@ def test_vacciguard_batch_analytics_dag_structure():
     dag = dag_module.dag
     assert dag.dag_id == "vacciguard_batch_analytics"
     assert dag.schedule is None
+    assert dag.params["device_compliance_output"] == ""
     tasks = {task.task_id: task for task in dag.tasks}
     assert list(tasks) == ["run_batch_analytics", "verify_batch_outputs"]
 
@@ -24,8 +25,15 @@ def test_vacciguard_batch_analytics_dag_structure():
     assert "--invalid-input '{{ params.invalid_input }}'" in run_task.bash_command
     assert "--breach-windows-input '{{ params.breach_windows_input }}'" in run_task.bash_command
     assert "--compliance-output '{{ params.compliance_output }}'" in run_task.bash_command
+    assert (
+        "--device-compliance-output '{{ params.device_compliance_output }}'"
+        in run_task.bash_command
+    )
     assert "--audit-output '{{ params.audit_output }}'" in run_task.bash_command
     assert "test -n '{{ params.compliance_output }}'" in verify_task.bash_command
+    assert (
+        "test -n '{{ params.device_compliance_output }}'" in verify_task.bash_command
+    )
     assert "test -n '{{ params.audit_output }}'" in verify_task.bash_command
 
     downstream = getattr(run_task, "downstream_task_ids", None)

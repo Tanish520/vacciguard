@@ -89,6 +89,7 @@ with DAG(
         "invalid_input": "",
         "breach_windows_input": "",
         "compliance_output": "",
+        "device_compliance_output": "",
         "audit_output": "",
     },
 ) as dag:
@@ -101,6 +102,7 @@ with DAG(
             "--invalid-input '{{ params.invalid_input }}' "
             "--breach-windows-input '{{ params.breach_windows_input }}' "
             "--compliance-output '{{ params.compliance_output }}' "
+            "--device-compliance-output '{{ params.device_compliance_output }}' "
             "--audit-output '{{ params.audit_output }}'"
         ),
     )
@@ -109,6 +111,7 @@ with DAG(
         task_id="verify_batch_outputs",
         bash_command=(
             "test -n '{{ params.compliance_output }}' && "
+            "test -n '{{ params.device_compliance_output }}' && "
             "test -n '{{ params.audit_output }}'"
         ),
     )
