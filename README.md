@@ -34,11 +34,27 @@ VacciGuard is a cloud data pipeline case study for vaccine cold-chain monitoring
 - [Project Planning/03-architecture/vacciguard-architecture-overview.html](/Users/tanishgupta/Desktop/vacciguard/Project%20Planning/03-architecture/vacciguard-architecture-overview.html): colorful visual overview of the architecture and system working flow
 - [Project Planning/project-folder-structure.md](/Users/tanishgupta/Desktop/vacciguard/Project%20Planning/project-folder-structure.md): implementation folder structure and the purpose of each folder
 - [data/](/Users/tanishgupta/Desktop/vacciguard/data): datasets for lookup, batch, and replay workloads
-- [services/](/Users/tanishgupta/Desktop/vacciguard/services): code for the replay producer and Spark processors
-- [orchestration/](/Users/tanishgupta/Desktop/vacciguard/orchestration): Airflow DAGs and related orchestration config
+- [services/](services): code for the replay producer, stream processor, and [services/batch-analytics/](services/batch-analytics) batch summaries
+- [orchestration/](orchestration): Airflow DAGs and related orchestration config, including [orchestration/airflow/dags/vacciguard_batch_analytics_dag.py](orchestration/airflow/dags/vacciguard_batch_analytics_dag.py)
 - [infra/](/Users/tanishgupta/Desktop/vacciguard/infra): Terraform, Kubernetes, and monitoring setup
 - [tests/](/Users/tanishgupta/Desktop/vacciguard/tests): smoke, workload, and failure validation areas
 - [results/](/Users/tanishgupta/Desktop/vacciguard/results): baseline and optimized experiment outputs
+
+## Batch Analytics Workflow
+
+VacciGuard now includes a storage-first batch analytics layer for historical reporting. The batch
+job reads archived optimized pipeline outputs from S3 and produces two derived Parquet summaries:
+
+- `daily_compliance_summary`: facility-level daily safety and temperature metrics
+- `daily_audit_summary`: invalid-event and breach-trend audit metrics
+
+The batch-processing implementation lives in:
+
+- `services/batch-analytics/job.py`: batch summary builders, archived-input readers, and output writers
+- `orchestration/airflow/dags/vacciguard_batch_analytics_dag.py`: a manual-trigger Airflow DAG that runs the batch job over archived inputs
+- `orchestration/airflow/configs/README.md`: operator notes and example trigger parameters for demo and report use
+
+This keeps the real-time SLA-critical stream path separate from the scheduled batch reporting path while still reusing the archived S3 datasets produced by the optimized cold path.
 
 ## Current Status
 
