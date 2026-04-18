@@ -42,7 +42,7 @@ The best-fit solution is to add a manually triggered Airflow workflow that launc
 The new batch workflow will:
 
 - read historical datasets already produced by the optimized cold path
-- compute compliance summaries and audit summaries
+- compute facility-level compliance summaries, device-level compliance summaries, and audit summaries
 - write the derived summary datasets back to S3
 - run independently from the low-latency hot path
 
@@ -98,7 +98,7 @@ The new batch layer runs after archival storage and is composed of:
 
 - one Airflow DAG
 - one batch analytics job
-- two derived S3 summary outputs
+- three derived S3 summary outputs
 
 The Airflow DAG will be manually triggered and will orchestrate the batch job. The batch job will read stored historical data from S3 and generate analytical summaries suitable for reporting, compliance review, and audit use cases.
 
@@ -115,6 +115,7 @@ The batch workflow will reuse the existing archived outputs:
 The batch workflow will produce:
 
 - `daily_compliance_summary/`
+- `daily_device_compliance_summary/`
 - `daily_audit_summary/`
 
 These outputs will also be written to S3 so they become part of the data lake and can be referenced in reports and demos.
@@ -164,6 +165,27 @@ Planned fields:
 - `max_temperature_c`
 - `unique_devices_seen`
 
+### Daily Device Compliance Summary
+
+The device-level compliance summary is intended to make the batch layer look and behave more like a real cold-chain reporting system rather than a minimal proof-of-concept rollup. It gives one row per day, facility, and monitored device so Athena queries can surface risky storage units, repeated breach devices, and facility-specific problem patterns.
+
+Planned fields:
+
+- `event_date`
+- `facility_id`
+- `facility_name`
+- `district`
+- `state`
+- `storage_type`
+- `device_id`
+- `total_processed_events`
+- `safe_events`
+- `breach_events`
+- `breach_rate_pct`
+- `avg_temperature_c`
+- `min_temperature_c`
+- `max_temperature_c`
+
 ### Daily Audit Summary
 
 The audit summary is intended to answer data-quality and historical breach-analysis questions.
@@ -181,10 +203,13 @@ Planned fields:
 
 ### Design Intent
 
-Together, these two outputs give the project a meaningful batch-processing story:
+Together, these three outputs give the project a meaningful batch-processing story:
 
-- compliance reporting from historical operational data
+- management-level compliance reporting from historical operational data
+- device-level cold-chain reporting that looks closer to a real facility operations report
 - audit and quality analysis from invalid and breach-related historical records
+
+This is important for presentation quality as well as technical value. The underlying telemetry remains synthetic for controlled experimentation, but the reporting layer becomes more realistic by surfacing facility names, districts, storage types, and individual monitored devices in the derived batch outputs.
 
 ---
 
@@ -223,7 +248,7 @@ The implementation should stay intentionally small and reuse the existing evalua
 
 - one Airflow DAG
 - one batch analytics script or job entrypoint
-- one pair of S3 output prefixes for the summaries
+- one set of S3 output prefixes for the three summaries
 - lightweight tests for batch summarization logic and DAG wiring
 
 ### Boundaries
@@ -236,6 +261,11 @@ The new feature should not:
 - change the existing evaluation-controller report contract
 
 Instead, it should extend the platform by adding a separate historical analytics capability.
+
+It should also avoid pretending the source data is real clinical data. The correct positioning is:
+
+- synthetic telemetry for controlled engineering evaluation
+- realistic facility-oriented reporting outputs for operational analytics and demonstration
 
 ---
 
