@@ -1,5 +1,7 @@
 import importlib.util
+from io import BytesIO
 from pathlib import Path
+from types import SimpleNamespace
 
 import pandas as pd
 
@@ -90,6 +92,23 @@ def test_build_daily_audit_summary():
     assert summary.iloc[0]["devices_with_repeated_breaches"] == 1
 
 
+def test_build_daily_audit_summary_counts_unknown_invalid_reasons_in_total():
+    invalid = pd.DataFrame(
+        [
+            {"event_date": "2026-04-17", "invalid_reason": "unknown_device"},
+            {"event_date": "2026-04-17", "invalid_reason": "sensor_desync"},
+        ]
+    )
+    breach_windows = pd.DataFrame()
+
+    summary = batch_job.build_daily_audit_summary(invalid, breach_windows)
+
+    assert summary.iloc[0]["invalid_events_total"] == 2
+    assert summary.iloc[0]["invalid_unknown_device"] == 1
+    assert summary.iloc[0]["invalid_corrupt_payload"] == 0
+    assert summary.iloc[0]["invalid_missing_fields"] == 0
+
+
 def test_build_daily_audit_summary_handles_empty_invalid_frame_with_breaches():
     invalid = pd.DataFrame()
     breach_windows = pd.DataFrame(
@@ -118,6 +137,8 @@ def test_build_daily_audit_summary_handles_empty_invalid_frame_with_breaches():
     assert summary.iloc[0]["breach_window_count"] == 1
     assert summary.iloc[0]["facilities_with_breaches"] == 1
     assert summary.iloc[0]["devices_with_repeated_breaches"] == 0
+    for column in summary.columns[1:]:
+        assert pd.api.types.is_integer_dtype(summary[column])
 
 
 def test_build_daily_audit_summary_handles_missing_event_date():
@@ -142,6 +163,103 @@ def test_build_daily_audit_summary_handles_missing_event_date():
     ]
     assert len(summary) == 2
     assert set(summary["event_date"]) == {"", "2026-04-17"}
+
+
+def test_builders_handle_empty_inputs():
+    compliance = batch_job.build_daily_compliance_summary(pd.DataFrame())
+    audit = batch_job.build_daily_audit_summary(pd.DataFrame(), pd.DataFrame())
+
+    assert compliance.empty
+    assert audit.empty
+
+
+def test_read_json_lines_input_reads_directory(tmp_path):
+    input_dir = tmp_path / "invalid"
+    nested_dir = input_dir / "part-00000"
+    nested_dir.mkdir(parents=True)
+
+    pd.DataFrame(
+        [{"event_date": "2026-04-17", "invalid_reason": "unknown_device"}]
+    ).to_json(nested_dir / "data.json", orient="records", lines=True)
+    pd.DataFrame(
+        [{"event_date": "2026-04-17", "invalid_reason": "missing_fields"}]
+    ).to_json(input_dir / "part-00001.json", orient="records", lines=True)
+
+    frame = batch_job.read_json_lines_input(str(input_dir))
+
+    assert len(frame) == 2
+
+
+def test_read_json_lines_input_reads_s3_prefix(monkeypatch):
+    class FakeInputStream:
+        def __init__(self, payload: bytes) -> None:
+            self.payload = payload
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return self.payload
+
+    class FakeFileSystem:
+        def get_file_info(self, selector):
+            assert selector.base_dir == "bucket/prefix"
+            assert selector.recursive is True
+            return [
+                SimpleNamespace(is_file=True, path="bucket/prefix/part-00000.json"),
+                SimpleNamespace(is_file=False, path="bucket/prefix/subdir"),
+            ]
+
+        def open_input_file(self, path):
+            assert path == "bucket/prefix/part-00000.json"
+            return FakeInputStream(
+                b'{"event_date":"2026-04-17","invalid_reason":"unknown_device"}\n'
+            )
+
+    monkeypatch.setattr(
+        batch_job,
+        "filesystem_from_uri",
+        lambda path: (FakeFileSystem(), "bucket/prefix"),
+    )
+
+    frame = batch_job.read_json_lines_input("s3://demo-bucket/prefix")
+
+    assert len(frame) == 1
+    assert frame.iloc[0]["invalid_reason"] == "unknown_device"
+
+
+def test_write_summary_output_writes_to_s3_prefix(monkeypatch):
+    written = {}
+
+    class FakeOutputStream(BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            written["bytes"] = self.getvalue()
+            return False
+
+    class FakeFileSystem:
+        def open_output_stream(self, path):
+            written["path"] = path
+            return FakeOutputStream()
+
+    monkeypatch.setattr(
+        batch_job,
+        "filesystem_from_uri",
+        lambda path: (FakeFileSystem(), "bucket/output"),
+    )
+
+    batch_job.write_summary_output(
+        pd.DataFrame([{"event_date": "2026-04-17", "invalid_events_total": 1}]),
+        "s3://demo-bucket/output",
+    )
+
+    assert written["path"] == "bucket/output/summary.parquet"
+    assert written["bytes"]
 
 
 def test_run_batch_job_writes_summary_outputs(tmp_path):

@@ -2,12 +2,25 @@
 from __future__ import annotations
 
 import argparse
+from io import BytesIO
 from pathlib import Path
 
 import pandas as pd
+import pyarrow as pa
+from pyarrow import fs
+from pyarrow import parquet as pq
 
 
 COMPLIANCE_COLUMNS = [
+    "event_date",
+    "facility_id",
+    "facility_name",
+    "device_id",
+    "temperature_c",
+    "breach_status",
+]
+
+COMPLIANCE_OUTPUT_COLUMNS = [
     "event_date",
     "facility_id",
     "facility_name",
@@ -21,6 +34,17 @@ COMPLIANCE_COLUMNS = [
     "unique_devices_seen",
 ]
 
+AUDIT_INVALID_COLUMNS = [
+    "event_date",
+    "invalid_reason",
+]
+
+AUDIT_BREACH_COLUMNS = [
+    "event_date",
+    "facility_id",
+    "device_id",
+]
+
 AUDIT_COLUMNS = [
     "event_date",
     "invalid_events_total",
@@ -32,10 +56,34 @@ AUDIT_COLUMNS = [
     "devices_with_repeated_breaches",
 ]
 
+AUDIT_COUNT_COLUMNS = [
+    "invalid_events_total",
+    "invalid_unknown_device",
+    "invalid_corrupt_payload",
+    "invalid_missing_fields",
+    "breach_window_count",
+    "facilities_with_breaches",
+    "devices_with_repeated_breaches",
+]
+
+
+def is_s3_uri(path: str) -> bool:
+    return path.startswith("s3://")
+
+
+def filesystem_from_uri(path: str) -> tuple[fs.FileSystem, str]:
+    return fs.FileSystem.from_uri(path)
+
+
+def ensure_columns(frame: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
+    for column in columns:
+        if column not in frame.columns:
+            frame[column] = pd.Series(dtype="object")
+    return frame[columns]
+
 
 def build_daily_compliance_summary(processed: pd.DataFrame) -> pd.DataFrame:
-    if processed.empty:
-        return pd.DataFrame(columns=COMPLIANCE_COLUMNS)
+    processed = ensure_columns(processed.copy(), COMPLIANCE_COLUMNS)
 
     summary = (
         processed.groupby(["event_date", "facility_id", "facility_name"], dropna=False)
@@ -53,74 +101,47 @@ def build_daily_compliance_summary(processed: pd.DataFrame) -> pd.DataFrame:
     summary["breach_rate_pct"] = (
         summary["breach_events"] / summary["total_processed_events"] * 100.0
     ).round(2)
-    return summary[COMPLIANCE_COLUMNS]
+    return summary[COMPLIANCE_OUTPUT_COLUMNS]
 
 
 def build_daily_audit_summary(
     invalid: pd.DataFrame, breach_windows: pd.DataFrame
 ) -> pd.DataFrame:
-    if invalid.empty and breach_windows.empty:
-        return pd.DataFrame(columns=AUDIT_COLUMNS)
+    invalid = ensure_columns(invalid.copy(), AUDIT_INVALID_COLUMNS)
+    breach_windows = ensure_columns(breach_windows.copy(), AUDIT_BREACH_COLUMNS)
 
-    if not invalid.empty and "event_date" in invalid.columns:
-        invalid = invalid.copy()
-        invalid["event_date"] = invalid["event_date"].astype("string").fillna("")
+    invalid["event_date"] = invalid["event_date"].astype("string").fillna("")
+    breach_windows["event_date"] = breach_windows["event_date"].astype("string").fillna("")
 
-    if not breach_windows.empty and "event_date" in breach_windows.columns:
-        breach_windows = breach_windows.copy()
-        breach_windows["event_date"] = breach_windows["event_date"].astype("string").fillna("")
+    invalid_summary = (
+        invalid.groupby("event_date", dropna=False)["invalid_reason"]
+        .value_counts()
+        .unstack(fill_value=0)
+        .reset_index()
+    )
+    reason_columns = [column for column in invalid_summary.columns if column != "event_date"]
+    for reason in ("unknown_device", "corrupt_payload", "missing_fields"):
+        if reason not in invalid_summary.columns:
+            invalid_summary[reason] = 0
+    invalid_summary["invalid_events_total"] = invalid_summary[reason_columns].sum(axis=1)
 
-    if invalid.empty or {"event_date", "invalid_reason"} - set(invalid.columns):
-        invalid_summary = pd.DataFrame(
-            columns=[
-                "event_date",
-                "unknown_device",
-                "corrupt_payload",
-                "missing_fields",
-                "invalid_events_total",
-            ]
+    repeated_devices = (
+        breach_windows.groupby(["event_date", "device_id"], dropna=False)
+        .size()
+        .reset_index(name="occurrences")
+        .groupby("event_date", dropna=False)["occurrences"]
+        .apply(lambda values: int((values > 1).sum()))
+        .reset_index(name="devices_with_repeated_breaches")
+    )
+    breach_summary = (
+        breach_windows.groupby("event_date", dropna=False)
+        .agg(
+            breach_window_count=("device_id", "size"),
+            facilities_with_breaches=("facility_id", "nunique"),
         )
-    else:
-        invalid_summary = (
-            invalid.groupby("event_date", dropna=False)["invalid_reason"]
-            .value_counts()
-            .unstack(fill_value=0)
-            .reset_index()
-        )
-        for reason in ("unknown_device", "corrupt_payload", "missing_fields"):
-            if reason not in invalid_summary.columns:
-                invalid_summary[reason] = 0
-        invalid_summary["invalid_events_total"] = invalid_summary[
-            ["unknown_device", "corrupt_payload", "missing_fields"]
-        ].sum(axis=1)
-
-    if breach_windows.empty:
-        breach_summary = pd.DataFrame(
-            columns=[
-                "event_date",
-                "breach_window_count",
-                "facilities_with_breaches",
-                "devices_with_repeated_breaches",
-            ]
-        )
-    else:
-        repeated_devices = (
-            breach_windows.groupby(["event_date", "device_id"], dropna=False)
-            .size()
-            .reset_index(name="occurrences")
-            .groupby("event_date", dropna=False)["occurrences"]
-            .apply(lambda values: int((values > 1).sum()))
-            .reset_index(name="devices_with_repeated_breaches")
-        )
-        breach_summary = (
-            breach_windows.groupby("event_date", dropna=False)
-            .agg(
-                breach_window_count=("device_id", "size"),
-                facilities_with_breaches=("facility_id", "nunique"),
-            )
-            .reset_index()
-            .merge(repeated_devices, on="event_date", how="left")
-        )
+        .reset_index()
+        .merge(repeated_devices, on="event_date", how="left")
+    )
 
     merged = invalid_summary.merge(breach_summary, on="event_date", how="outer")
     merged = merged.fillna(0).infer_objects(copy=False)
@@ -131,19 +152,40 @@ def build_daily_audit_summary(
             "missing_fields": "invalid_missing_fields",
         }
     )
+    renamed[AUDIT_COUNT_COLUMNS] = renamed[AUDIT_COUNT_COLUMNS].astype("int64")
     return renamed[AUDIT_COLUMNS]
 
 
 def read_processed_input(path: str) -> pd.DataFrame:
+    if is_s3_uri(path):
+        filesystem, resolved_path = filesystem_from_uri(path)
+        table = pq.read_table(resolved_path, filesystem=filesystem)
+        return table.to_pandas()
     return pd.read_parquet(path)
 
 
 def read_json_lines_input(path: str) -> pd.DataFrame:
+    if is_s3_uri(path):
+        filesystem, resolved_path = filesystem_from_uri(path)
+        selector = fs.FileSelector(resolved_path, recursive=True)
+        infos = [
+            info
+            for info in filesystem.get_file_info(selector)
+            if info.is_file and info.path.endswith(".json")
+        ]
+        frames = []
+        for info in sorted(infos, key=lambda item: item.path):
+            with filesystem.open_input_file(info.path) as stream:
+                frames.append(pd.read_json(BytesIO(stream.read()), lines=True))
+        if not frames:
+            return pd.DataFrame()
+        return pd.concat(frames, ignore_index=True)
+
     input_path = Path(path)
     if input_path.is_dir():
         frames = [
             pd.read_json(json_path, lines=True)
-            for json_path in sorted(input_path.glob("*.json"))
+            for json_path in sorted(input_path.rglob("*.json"))
         ]
         if not frames:
             return pd.DataFrame()
@@ -152,6 +194,14 @@ def read_json_lines_input(path: str) -> pd.DataFrame:
 
 
 def write_summary_output(frame: pd.DataFrame, output_path: str) -> None:
+    if is_s3_uri(output_path):
+        filesystem, resolved_path = filesystem_from_uri(output_path)
+        target_path = resolved_path.rstrip("/") + "/summary.parquet"
+        table = pa.Table.from_pandas(frame, preserve_index=False)
+        with filesystem.open_output_stream(target_path) as stream:
+            pq.write_table(table, stream)
+        return
+
     destination = Path(output_path)
     destination.mkdir(parents=True, exist_ok=True)
     frame.to_parquet(destination / "summary.parquet", index=False)
