@@ -16,6 +16,7 @@ class RepoDocumentationTests(unittest.TestCase):
         )
         self.assertIn("orchestration/airflow/configs/README.md", raw)
         self.assertIn("daily_compliance_summary", raw)
+        self.assertIn("daily_device_compliance_summary", raw)
         self.assertIn("daily_audit_summary", raw)
 
     def test_project_structure_documents_batch_service_and_eval_tests(self):
@@ -39,6 +40,7 @@ class RepoDocumentationTests(unittest.TestCase):
         self.assertIn("invalid_input", raw)
         self.assertIn("breach_windows_input", raw)
         self.assertIn("compliance_output", raw)
+        self.assertIn("device_compliance_output", raw)
         self.assertIn("audit_output", raw)
         self.assertIn("summary.parquet", raw)
 

@@ -17,12 +17,14 @@ processed_input: s3://vacciguard-tanish-baseline-ap-south-1-data/evaluations/opt
 invalid_input: s3://vacciguard-tanish-baseline-ap-south-1-data/evaluations/optimized/normal/opt-normal-3-20260417t184552z/invalid/
 breach_windows_input: s3://vacciguard-tanish-baseline-ap-south-1-data/evaluations/optimized/normal/opt-normal-3-20260417t184552z/breach_windows/
 compliance_output: s3://vacciguard-tanish-baseline-ap-south-1-data/batch-analytics/demo/daily_compliance_summary/
+device_compliance_output: s3://vacciguard-tanish-baseline-ap-south-1-data/batch-analytics/demo/daily_device_compliance_summary/
 audit_output: s3://vacciguard-tanish-baseline-ap-south-1-data/batch-analytics/demo/daily_audit_summary/
 ```
 
 When the run completes, expect these S3-style output prefixes to contain the generated Parquet summaries:
 
 - `compliance_output/summary.parquet`
+- `device_compliance_output/summary.parquet`
 - `audit_output/summary.parquet`
 
-Use matching output prefixes for each run so the compliance and audit summaries stay grouped by batch execution.
+Use matching output prefixes for each run so the compliance, device compliance, and audit summaries stay grouped by batch execution.

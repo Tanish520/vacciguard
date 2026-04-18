@@ -43,9 +43,10 @@ VacciGuard is a cloud data pipeline case study for vaccine cold-chain monitoring
 ## Batch Analytics Workflow
 
 VacciGuard now includes a storage-first batch analytics layer for historical reporting. The batch
-job reads archived optimized pipeline outputs from S3 and produces two derived Parquet summaries:
+job reads archived optimized pipeline outputs from S3 and produces three derived Parquet summaries:
 
 - `daily_compliance_summary`: facility-level daily safety and temperature metrics
+- `daily_device_compliance_summary`: device-level daily safety and temperature metrics
 - `daily_audit_summary`: invalid-event and breach-trend audit metrics
 
 The batch-processing implementation lives in:
