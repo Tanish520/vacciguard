@@ -1,53 +1,119 @@
-# Normal Load — Optimized Pipeline
+# Normal Load - Optimized Pipeline
 
-**Run ID:** `20260416-optimized-5m-normal`  
-**Date:** `2026-04-16`  
-**Duration:** `5 minutes`  
+**Branch:** `baseline-spike-fix`  
+**Pipeline:** `optimized`  
+**Scenario:** `normal`  
 **Load:** `100 eps`  
-**Total input events:** `33,000`
+**Duration:** `5 minutes`  
+**Runs:** `3`
 
 ---
 
-## Metrics
+## Executive Summary
+
+The optimized split pipeline is consistently below the 5-second SLA under normal load. Across three fresh AWS runs, the hot path stayed between `1.37 s` and `1.79 s` average latency, with P95 between `1.64 s` and `1.92 s`. Consumer lag remained `0` in every run, so the pipeline drained Kafka completely each time.
+
+The cold path is slower and more variable, but that is expected because it owns the archival S3 work. The important result is that cold-path variability no longer drags the live Redis SLA below the target.
+
+Compared with the historical baseline normal run (`2.60 s` avg, `3.11 s` p95), the optimized split pipeline reduced average latency to about `1.56 s` on average and P95 to about `1.75 s` on average.
+
+---
+
+## Run Table
+
+| Trial | Run ID | Avg Latency | P95 | P99 | Throughput | Lag | Hot Batch | Cold Batch | Processed | Dedup | Breach |
+|------|--------|-------------|-----|-----|------------|-----|-----------|------------|-----------|-------|--------|
+| 1 | `opt-normal-1-20260417t183111z` | `1.37 s` | `1.70 s` | `1.75 s` | `100.0 eps` | `0` | `1.20 s` | `11.82 s` | `32,350` | `50` | `519` |
+| 2 | `opt-normal-2-20260417t183834z` | `1.79 s` | `1.92 s` | `1.92 s` | `100.0 eps` | `0` | `1.26 s` | `3.48 s` | `32,388` | `12` | `520` |
+| 3 | `opt-normal-3-20260417t184552z` | `1.51 s` | `1.64 s` | `1.64 s` | `100.0 eps` | `0` | `1.22 s` | `11.68 s` | `32,336` | `64` | `520` |
+
+---
+
+## Aggregate View
+
+| Metric | Min | Max | Mean |
+|--------|-----|-----|------|
+| Avg end-to-end latency | `1.37 s` | `1.79 s` | `1.56 s` |
+| P95 end-to-end latency | `1.64 s` | `1.92 s` | `1.75 s` |
+| P99 end-to-end latency | `1.64 s` | `1.92 s` | `1.77 s` |
+| Throughput | `100.0 eps` | `100.0 eps` | `100.0 eps` |
+| Hot batch duration | `1.20 s` | `1.26 s` | `1.23 s` |
+| Cold batch duration | `3.48 s` | `11.82 s` | `8.99 s` |
+| Processed events | `32,336` | `32,388` | `32,358` |
+
+---
+
+## Detailed Metrics
 
 | Metric | Value |
 |--------|-------|
 | status | `succeeded` |
 | pipeline_success | `true` |
-| avg_end_to_end_latency_seconds | `14.19 s` |
-| p95_end_to_end_latency_seconds | `35.88 s` |
-| ingest_to_redis_p95_seconds | `30.85 s` |
 | throughput_eps | `100.0` |
 | consumer_lag_records | `0` |
 | input_events | `33,000` |
-| processed_events | `32,396` |
-| processed_rate_pct | `98.17%` |
+| processed_events | `32,358` |
+| processed_rate_pct | `98.05%` |
 | invalid_events | `600` |
 | invalid_rate_pct | `1.82%` |
-| deduplicated_events | `4` |
-| breach_events | `520` |
-| processed_output_objects | `60` |
+| deduplicated_events | `42` |
+| deduplication_rate_pct | `0.13%` |
+| breach_events | `519` |
+| breach_rate_pct | `1.57%` |
+| processed_output_objects | `46.7` |
+| invalid_output_objects | `1.0` |
+| event_time_lag_p95_seconds | `0.0` |
+| watermark_delay_seconds | `0.0` |
+| pod_restart_count | `1.0` |
+| queries_active | `1.0` |
 | cost_per_run (calculated) | `~$0.017` |
 | cost_per_gb_processed (calculated) | `~$2.58/GB` |
 
 ---
 
-## Observations (from stream processor logs / report)
+## Observations
 
-- First hot batch latency: `14.19s` avg, `35.88s` P95.
-- Last hot batch latency: `14.19s` avg, `35.88s` P95.
-- Latency stable / climbing / other: stable but far above the target; the optimized path still needs work.
-- Any errors seen: no direct errors, but the event-time lag metrics were very high, which suggests the time windowing path was still backing up.
+- The optimized hot path remains comfortably under the 5-second SLA in all three runs.
+- The cold path shows run-to-run variability, but that variability does not spill into Redis latency because the split architecture isolates the live path.
+- Consumer lag stayed at `0` every time, which means the pipeline did not leave Kafka backlog behind.
+- Invalid events stayed constant at `600` per run, which matches the workload design for a 5-minute, `100 eps` evaluation.
+- Deduplicated counts varied between `12` and `64` because the event ordering and duplicates differ slightly run to run, but this did not affect SLA compliance.
+
+---
+
+## Key Findings
+
+- The optimized split pipeline is now stable for normal load.
+- The hot path is the part that matters for SLA, and it stays low-latency even when the cold path takes longer.
+- The optimized design is not only faster than the historical optimized results from `2026-04-16`, it is also materially better than the baseline normal run.
+- The gap between hot and cold durations is a feature, not a bug: the system is intentionally prioritizing live Redis freshness over archival throughput.
+
+---
+
+## Comparison With Baseline
+
+- Baseline normal run: `2.60 s` avg, `3.11 s` p95
+- Optimized normal mean across 3 runs: `1.56 s` avg, `1.75 s` p95
+- Improvement in average latency: about `40%`
+- Improvement in P95 latency: about `44%`
+
+---
+
+## Report Artifacts
+
+- Trial 1: `s3://vacciguard-tanish-baseline-ap-south-1-data/evaluations/optimized/normal/opt-normal-1-20260417t183111z/report.json`
+- Trial 2: `s3://vacciguard-tanish-baseline-ap-south-1-data/evaluations/optimized/normal/opt-normal-2-20260417t183834z/report.json`
+- Trial 3: `s3://vacciguard-tanish-baseline-ap-south-1-data/evaluations/optimized/normal/opt-normal-3-20260417t184552z/report.json`
 
 ---
 
 ## S3 Verification
 
 ```bash
-aws s3 ls s3://vacciguard-tanish-baseline-ap-south-1-data/evaluations/optimized/normal/20260416-optimized-5m-normal/processed/ --recursive | wc -l
+aws s3 ls s3://vacciguard-tanish-baseline-ap-south-1-data/evaluations/optimized/normal/opt-normal-3-20260417t184552z/processed/ --recursive | wc -l
 ```
 
-Object count: `60`
+Object count: `48`
 
 ---
 
@@ -57,61 +123,27 @@ Object count: `60`
 - S3: `~$0.0003`
 - Total per run: `~$0.0166`
 - Data volume: `33,000 events × 200 bytes ≈ 6.6 MB`
-- Cost per GB: `~$2.52/GB`
+- Cost per GB: `~$2.58/GB`
+
+### Why the cost per GB is still high at normal load
+
+The optimized split pipeline improves latency substantially, but it still keeps the same AWS cluster alive for a relatively small 5-minute, 33k-event workload. That means the cost remains mostly fixed infrastructure cost rather than variable data cost. The pipeline is now latency-efficient, but it is not yet fully amortizing the cluster at this traffic level.
 
 ---
 
-## Key Findings
-
-- The optimized pipeline did not yet beat the baseline on normal load in this run: latency is much higher than the baseline normal run (`14.19s` avg, `35.88s` p95).
-- Data completeness is still good: consumer lag is `0`, processed rate is `98.17%`, and invalid rate remains the expected `1.82%`.
-- The high `event_time_lag_p95_seconds` and `watermark_delay_seconds` indicate the optimized path still has a backlog problem in the event-time handling stage.
-- This is an important negative finding: the optimized branch is not yet the final answer for normal-load latency.
-
----
-
-## Raw Report JSON
+## Raw Report Highlights
 
 ```json
 {
-  "avg_end_to_end_latency_seconds": 14.19,
-  "breach_events": 520,
-  "breach_window_output_objects": 60,
-  "bucket_name": "vacciguard-tanish-baseline-ap-south-1-data",
-  "configured_events_per_second": 100.0,
-  "consumer_lag_records": 0,
-  "controller_job_success": true,
-  "cost_per_gb_processed": "Not run",
-  "cost_per_run": "Not run",
-  "deduplicated_events": 4,
-  "deduplication_rate_pct": 0.01,
-  "event_time_lag_p95_seconds": 339.39,
-  "failure_reason": null,
-  "ingest_to_redis_p95_seconds": 30.85,
-  "input_events": 33000,
-  "invalid_events": 600,
-  "invalid_output_objects": 8,
-  "invalid_rate_pct": 1.82,
-  "kafka_topic": "vacciguard-eval-20260416-optimized-5m-normal",
-  "p95_end_to_end_latency_seconds": 35.88,
-  "pipeline_success": true,
-  "pipeline_target": "optimized",
-  "processed_events": 32396,
-  "processed_output_objects": 60,
-  "processed_rate_pct": 98.17,
-  "recovery_time_after_failure": "Not run",
-  "replay_job_success": true,
-  "report_json_s3_uri": "s3://vacciguard-tanish-baseline-ap-south-1-data/evaluations/optimized/normal/20260416-optimized-5m-normal/report.json",
-  "report_markdown_s3_uri": "s3://vacciguard-tanish-baseline-ap-south-1-data/evaluations/optimized/normal/20260416-optimized-5m-normal/report.md",
-  "run_id": "20260416-optimized-5m-normal",
-  "s3_prefix": "evaluations/optimized/normal/20260416-optimized-5m-normal",
   "scenario": "normal",
-  "spike_result": "Not run",
-  "status": "succeeded",
-  "stream_metrics_source": "metrics_endpoint",
+  "pipeline_target": "optimized",
+  "avg_end_to_end_latency_seconds_mean": 1.56,
+  "p95_end_to_end_latency_seconds_mean": 1.75,
+  "processed_events_mean": 32358,
+  "consumer_lag_records": 0,
   "throughput_eps": 100.0,
-  "watermark_delay_seconds": 655.39,
+  "input_events_per_run": 33000,
   "workload_duration_minutes": 5,
-  "workload_family_version": "evaluation-workload-v1"
+  "processed_output_objects_mean": 46.7
 }
 ```
