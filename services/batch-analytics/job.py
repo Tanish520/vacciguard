@@ -274,6 +274,7 @@ def run_batch_job(
     invalid_input: str,
     breach_windows_input: str,
     compliance_output: str,
+    device_compliance_output: str,
     audit_output: str,
 ) -> None:
     processed = read_processed_input(processed_input)
@@ -281,9 +282,11 @@ def run_batch_job(
     breach_windows = read_json_lines_input(breach_windows_input)
 
     compliance_summary = build_daily_compliance_summary(processed)
+    device_compliance_summary = build_daily_device_compliance_summary(processed)
     audit_summary = build_daily_audit_summary(invalid, breach_windows)
 
     write_summary_output(compliance_summary, compliance_output)
+    write_summary_output(device_compliance_summary, device_compliance_output)
     write_summary_output(audit_summary, audit_output)
 
 
@@ -293,6 +296,7 @@ def main() -> None:
     parser.add_argument("--invalid-input", required=True)
     parser.add_argument("--breach-windows-input", required=True)
     parser.add_argument("--compliance-output", required=True)
+    parser.add_argument("--device-compliance-output", required=True)
     parser.add_argument("--audit-output", required=True)
     args = parser.parse_args()
     run_batch_job(
@@ -300,6 +304,7 @@ def main() -> None:
         invalid_input=args.invalid_input,
         breach_windows_input=args.breach_windows_input,
         compliance_output=args.compliance_output,
+        device_compliance_output=args.device_compliance_output,
         audit_output=args.audit_output,
     )
 

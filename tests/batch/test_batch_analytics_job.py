@@ -338,6 +338,7 @@ def test_run_batch_job_writes_summary_outputs(tmp_path):
     invalid_path = tmp_path / "invalid.json"
     breach_path = tmp_path / "breach.json"
     compliance_output = tmp_path / "compliance"
+    device_compliance_output = tmp_path / "device_compliance"
     audit_output = tmp_path / "audit"
 
     processed.to_parquet(processed_path, index=False)
@@ -349,11 +350,17 @@ def test_run_batch_job_writes_summary_outputs(tmp_path):
         invalid_input=str(invalid_path),
         breach_windows_input=str(breach_path),
         compliance_output=str(compliance_output),
+        device_compliance_output=str(device_compliance_output),
         audit_output=str(audit_output),
     )
 
     compliance_summary = pd.read_parquet(compliance_output / "summary.parquet")
+    device_compliance_summary = pd.read_parquet(
+        device_compliance_output / "summary.parquet"
+    )
     audit_summary = pd.read_parquet(audit_output / "summary.parquet")
+
+    assert (device_compliance_output / "summary.parquet").exists()
 
     assert list(compliance_summary.columns) == [
         "event_date",
@@ -373,6 +380,27 @@ def test_run_batch_job_writes_summary_outputs(tmp_path):
     assert compliance_summary.iloc[0]["safe_events"] == 1
     assert compliance_summary.iloc[0]["breach_events"] == 0
     assert compliance_summary.iloc[0]["unique_devices_seen"] == 1
+
+    assert list(device_compliance_summary.columns) == [
+        "event_date",
+        "facility_id",
+        "facility_name",
+        "district",
+        "state",
+        "storage_type",
+        "device_id",
+        "total_processed_events",
+        "safe_events",
+        "breach_events",
+        "breach_rate_pct",
+        "avg_temperature_c",
+        "min_temperature_c",
+        "max_temperature_c",
+    ]
+    assert "district" in device_compliance_summary.columns
+    assert "storage_type" in device_compliance_summary.columns
+    assert "device_id" in device_compliance_summary.columns
+    assert device_compliance_summary.iloc[0]["device_id"] == "dev-1"
 
     assert list(audit_summary.columns) == [
         "event_date",
