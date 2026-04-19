@@ -1,0 +1,95 @@
+# VacciGuard — local development stack
+# Phase 4: Kafka + Redis + stream processor + replay producer
+#
+# Usage:
+#   # 1. Generate the dev workload first (only needed once):
+#   python3 scripts/generate-dev-workload.py
+#
+#   # 2. Start the local data plane and wait for services to be healthy:
+#   docker compose up kafka redis stream-processor
+#
+#   # 3. Run the producer (publishes 300 events at 5 eps then exits):
+#   docker compose up replay-producer
+#
+#   # 4. Inspect hot state and cold output:
+#   docker compose exec redis redis-cli GET device:status:FR-0102
+#   find data/output -maxdepth 3 -type f | sort
+
+services:
+
+  # ── Kafka (KRaft mode — no Zookeeper) ──────────────────────────────────────
+  kafka:
+    image: bitnamilegacy/kafka:4.0.0-debian-12-r10
+    environment:
+      KAFKA_CFG_NODE_ID: "1"
+      KAFKA_CFG_PROCESS_ROLES: "broker,controller"
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
+      KAFKA_CFG_LISTENERS: "PLAINTEXT://:9092,CONTROLLER://:9093"
+      KAFKA_CFG_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:9092"
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: "PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT"
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_CFG_INTER_BROKER_LISTENER_NAME: "PLAINTEXT"
+      KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: "true"
+      ALLOW_PLAINTEXT_LISTENER: "yes"
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - "/opt/bitnami/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1"
+      interval: 10s
+      timeout: 10s
+      retries: 15
+      start_period: 30s
+
+  # ── Redis (local stand-in for ElastiCache) ─────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+
+  # ── Stream Processor ────────────────────────────────────────────────────────
+  stream-processor:
+    build:
+      context: ./services/stream-processor
+    depends_on:
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      APP_NAME:                 "vacciguard-stream-processor"
+      KAFKA_BOOTSTRAP_SERVERS:  "kafka:9092"
+      KAFKA_TOPIC:              "vacciguard-telemetry"
+      KAFKA_STARTING_OFFSETS:   "earliest"
+      LOOKUP_FILE:              "/data/reference/device-facility-lookup-template.csv"
+      PROCESSED_OUTPUT_PATH:    "/data/output/processed"
+      INVALID_OUTPUT_PATH:      "/data/output/invalid"
+      CHECKPOINT_ROOT:          "/data/output/checkpoints"
+      REDIS_HOST:               "redis"
+      REDIS_PORT:               "6379"
+      REDIS_DB:                 "0"
+      REDIS_STATUS_TTL_SECONDS: "3600"
+      TRIGGER_INTERVAL:         "5 seconds"
+      WATERMARK_DELAY:          "10 minutes"
+      SPARK_LOG_LEVEL:          "WARN"
+    volumes:
+      - ./data:/data
+
+  # ── Replay Producer ─────────────────────────────────────────────────────────
+  replay-producer:
+    build:
+      context: ./services/replay-producer
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+      KAFKA_TOPIC:             "vacciguard-telemetry"
+      WORKLOAD_FILE:           "/data/workloads/dev/events.ndjson"
+      EVENTS_PER_SECOND:       "5"
+      LOOP:                    "false"
+    volumes:
+      - ./data:/data:ro   # workload files mounted read-only

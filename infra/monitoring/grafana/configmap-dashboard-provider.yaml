@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-provider
+  namespace: monitoring
+data:
+  dashboard-provider.yaml: |
+    apiVersion: 1
+    providers:
+      - name: vacci-guard-baseline
+        orgId: 1
+        folder: VacciGuard
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards

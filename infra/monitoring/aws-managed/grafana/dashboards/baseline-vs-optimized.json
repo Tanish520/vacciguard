@@ -1,0 +1,526 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "graphTooltip": 1,
+  "panels": [
+    {
+      "datasource": "AMP",
+      "gridPos": {"h": 4, "w": 4, "x": 0, "y": 0},
+      "id": 1,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "expr": "avg by (pipeline_target) (vacciguard_stream_latest_batch_avg_latency_seconds)",
+          "legendFormat": "{{pipeline_target}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Avg Latency",
+      "type": "stat"
+    },
+    {
+      "datasource": "AMP",
+      "gridPos": {"h": 4, "w": 4, "x": 4, "y": 0},
+      "id": 2,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "expr": "avg by (pipeline_target) (vacciguard_stream_latest_batch_p95_latency_seconds)",
+          "legendFormat": "{{pipeline_target}}",
+          "refId": "A"
+        }
+      ],
+      "title": "P95 Latency",
+      "type": "stat"
+    },
+    {
+      "datasource": "AMP",
+      "gridPos": {"h": 4, "w": 4, "x": 8, "y": 0},
+      "id": 3,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "expr": "avg by (pipeline_target) (vacciguard_stream_latest_batch_p99_latency_seconds)",
+          "legendFormat": "{{pipeline_target}}",
+          "refId": "A"
+        }
+      ],
+      "title": "P99 Latency",
+      "type": "stat"
+    },
+    {
+      "datasource": "AMP",
+      "gridPos": {"h": 4, "w": 4, "x": 12, "y": 0},
+      "id": 4,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "expr": "avg by (pipeline_target) (vacciguard_stream_latest_batch_ingest_to_redis_p95_seconds)",
+          "legendFormat": "{{pipeline_target}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Ingest-to-Redis P95",
+      "type": "stat"
+    },
+    {
+      "datasource": "AMP",
+      "gridPos": {"h": 4, "w": 4, "x": 16, "y": 0},
+      "id": 5,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "expr": "avg by (pipeline_target) (vacciguard_stream_observed_throughput_eps)",
+          "legendFormat": "{{pipeline_target}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Observed Throughput",
+      "type": "stat"
+    },
+    {
+      "datasource": "AMP",
+      "gridPos": {"h": 4, "w": 4, "x": 20, "y": 0},
+      "id": 6,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "expr": "avg by (pipeline_target) (vacciguard_stream_consumer_lag_records)",
+          "legendFormat": "{{pipeline_target}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Consumer Lag",
+      "type": "stat"
+    },
+    {
+      "datasource": "AMP",
+      "gridPos": {"h": 4, "w": 4, "x": 0, "y": 4},
+      "id": 7,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "expr": "sum by (pipeline_target) (vacciguard_stream_processed_events_total)",
+          "legendFormat": "{{pipeline_target}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Processed Events",
+      "type": "stat"
+    },
+    {
+      "datasource": "AMP",
+      "gridPos": {"h": 4, "w": 4, "x": 4, "y": 4},
+      "id": 8,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "expr": "100 * sum by (pipeline_target) (vacciguard_stream_invalid_events_total) / clamp_min(sum by (pipeline_target) (vacciguard_stream_processed_events_total) + sum by (pipeline_target) (vacciguard_stream_invalid_events_total), 1)",
+          "legendFormat": "{{pipeline_target}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Invalid Rate",
+      "type": "stat"
+    },
+    {
+      "datasource": "AMP",
+      "gridPos": {"h": 4, "w": 4, "x": 8, "y": 4},
+      "id": 9,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "expr": "100 * sum by (pipeline_target) (vacciguard_stream_deduplicated_events_total) / clamp_min(sum by (pipeline_target) (vacciguard_stream_processed_events_total) + sum by (pipeline_target) (vacciguard_stream_invalid_events_total), 1)",
+          "legendFormat": "{{pipeline_target}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Dedup Rate",
+      "type": "stat"
+    },
+    {
+      "datasource": "AMP",
+      "gridPos": {"h": 4, "w": 4, "x": 12, "y": 4},
+      "id": 10,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "expr": "100 * sum by (pipeline_target) (vacciguard_stream_breach_events_total) / clamp_min(sum by (pipeline_target) (vacciguard_stream_processed_events_total), 1)",
+          "legendFormat": "{{pipeline_target}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Breach Rate",
+      "type": "stat"
+    },
+    {
+      "datasource": "AMP",
+      "gridPos": {"h": 4, "w": 4, "x": 16, "y": 4},
+      "id": 11,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "expr": "avg by (pipeline_target) (vacciguard_stream_latest_batch_event_time_lag_p95_seconds)",
+          "legendFormat": "{{pipeline_target}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Event-time Lag P95",
+      "type": "stat"
+    },
+    {
+      "datasource": "AMP",
+      "gridPos": {"h": 4, "w": 4, "x": 20, "y": 4},
+      "id": 12,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "expr": "avg by (pipeline_target) (vacciguard_stream_watermark_delay_seconds)",
+          "legendFormat": "{{pipeline_target}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Watermark Delay",
+      "type": "stat"
+    },
+    {
+      "datasource": "AMP",
+      "gridPos": {"h": 4, "w": 4, "x": 0, "y": 8},
+      "id": 13,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "expr": "sum by (pipeline_target) (vacciguard_stream_cumulative_processed_events)",
+          "legendFormat": "{{pipeline_target}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Cumulative Processed Events",
+      "type": "stat"
+    },
+    {
+      "datasource": "AMP",
+      "gridPos": {"h": 4, "w": 4, "x": 4, "y": 8},
+      "id": 14,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "expr": "max by (pipeline_target) (vacciguard_stream_pod_restart_count)",
+          "legendFormat": "{{pipeline_target}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Pod Restarts",
+      "type": "stat"
+    },
+    {
+      "datasource": "AMP",
+      "gridPos": {"h": 4, "w": 4, "x": 8, "y": 8},
+      "id": 15,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "expr": "max by (pipeline_target) (vacciguard_stream_queries_active)",
+          "legendFormat": "{{pipeline_target}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Queries Active",
+      "type": "stat"
+    },
+    {
+      "datasource": "AMP",
+      "gridPos": {"h": 4, "w": 4, "x": 12, "y": 8},
+      "id": 16,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "expr": "avg by (pipeline_target) (vacciguard_stream_hot_batch_duration_seconds)",
+          "legendFormat": "{{pipeline_target}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Hot Batch Duration",
+      "type": "stat"
+    },
+    {
+      "datasource": "AMP",
+      "gridPos": {"h": 4, "w": 4, "x": 16, "y": 8},
+      "id": 17,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "expr": "avg by (pipeline_target) (vacciguard_stream_cold_batch_duration_seconds)",
+          "legendFormat": "{{pipeline_target}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Cold Batch Duration",
+      "type": "stat"
+    },
+    {
+      "datasource": "AMP",
+      "gridPos": {"h": 4, "w": 4, "x": 20, "y": 8},
+      "id": 18,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "expr": "max by (pipeline_target) (vacciguard_stream_latest_batch_id)",
+          "legendFormat": "{{pipeline_target}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Latest Batch ID",
+      "type": "stat"
+    },
+    {
+      "datasource": "AMP",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+      "id": 19,
+      "title": "Avg Latency Trend",
+      "targets": [
+        {
+          "expr": "avg by (pipeline_target) (vacciguard_stream_latest_batch_avg_latency_seconds)",
+          "legendFormat": "{{pipeline_target}}",
+          "refId": "A"
+        }
+      ],
+      "type": "timeseries"
+    },
+    {
+      "datasource": "AMP",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+      "id": 20,
+      "title": "P95 Latency Trend",
+      "targets": [
+        {
+          "expr": "avg by (pipeline_target) (vacciguard_stream_latest_batch_p95_latency_seconds)",
+          "legendFormat": "{{pipeline_target}}",
+          "refId": "A"
+        }
+      ],
+      "type": "timeseries"
+    },
+    {
+      "datasource": "AMP",
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 20},
+      "id": 21,
+      "title": "Ingest-to-Redis P95 Trend",
+      "targets": [
+        {
+          "expr": "avg by (pipeline_target) (vacciguard_stream_latest_batch_ingest_to_redis_p95_seconds)",
+          "legendFormat": "{{pipeline_target}}",
+          "refId": "A"
+        }
+      ],
+      "type": "timeseries"
+    },
+    {
+      "datasource": "AMP",
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 20},
+      "id": 22,
+      "title": "Processed Events Trend",
+      "targets": [
+        {
+          "expr": "sum by (pipeline_target) (vacciguard_stream_processed_events_total)",
+          "legendFormat": "{{pipeline_target}}",
+          "refId": "A"
+        }
+      ],
+      "type": "timeseries"
+    },
+    {
+      "datasource": "AMP",
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 20},
+      "id": 23,
+      "title": "Invalid Events Trend",
+      "targets": [
+        {
+          "expr": "sum by (pipeline_target) (vacciguard_stream_invalid_events_total)",
+          "legendFormat": "{{pipeline_target}}",
+          "refId": "A"
+        }
+      ],
+      "type": "timeseries"
+    },
+    {
+      "datasource": "AMP",
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 28},
+      "id": 24,
+      "title": "Deduplicated Events Trend",
+      "targets": [
+        {
+          "expr": "sum by (pipeline_target) (vacciguard_stream_deduplicated_events_total)",
+          "legendFormat": "{{pipeline_target}}",
+          "refId": "A"
+        }
+      ],
+      "type": "timeseries"
+    },
+    {
+      "datasource": "AMP",
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 28},
+      "id": 25,
+      "title": "Breach Events Trend",
+      "targets": [
+        {
+          "expr": "sum by (pipeline_target) (vacciguard_stream_breach_events_total)",
+          "legendFormat": "{{pipeline_target}}",
+          "refId": "A"
+        }
+      ],
+      "type": "timeseries"
+    },
+    {
+      "datasource": "AMP",
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 28},
+      "id": 26,
+      "title": "Consumer Lag Trend",
+      "targets": [
+        {
+          "expr": "avg by (pipeline_target) (vacciguard_stream_consumer_lag_records)",
+          "legendFormat": "{{pipeline_target}}",
+          "refId": "A"
+        }
+      ],
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "15s",
+  "schemaVersion": 38,
+  "tags": ["vacciGuard", "aws-managed", "baseline", "optimized"],
+  "templating": {"list": []},
+  "time": {"from": "now-6h", "to": "now"},
+  "timezone": "utc",
+  "title": "VacciGuard Baseline vs Optimized",
+  "uid": "vacciguard-aws-managed-comparison",
+  "version": 2
+}
