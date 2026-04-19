@@ -59,13 +59,13 @@ class AwsManagedObservabilityManifestTests(unittest.TestCase):
         self.assertIn("VacciGuard Baseline vs Optimized", dashboard["title"])
         titles = {panel["title"] for panel in dashboard["panels"]}
         expected_titles = {
-            "Baseline vs Optimized Avg Latency",
-            "Baseline vs Optimized P95 Latency",
+            "Avg Latency",
+            "P95 Latency",
             "Ingest-to-Redis P95",
             "Processed Events",
-            "Invalid Events",
-            "Deduplicated Events",
-            "Breach Events",
+            "Invalid Rate",
+            "Dedup Rate",
+            "Breach Rate",
             "Consumer Lag",
         }
         self.assertTrue(expected_titles.issubset(titles))
