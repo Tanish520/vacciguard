@@ -25,11 +25,12 @@ vacciguard/
   services/
     replay-producer/
     stream-processor/
-    batch-processor/
+    batch-analytics/
 
   orchestration/
     airflow/
       dags/
+        vacciguard_batch_analytics_dag.py
       configs/
 
   infra/
@@ -47,6 +48,7 @@ vacciguard/
     smoke/
     workload/
     failure/
+    evaluation/
 
   scripts/
 
@@ -92,7 +94,7 @@ This folder contains runnable project components.
 Subfolders:
 - `services/replay-producer/`: code for the Kafka replay producer that publishes the precomputed workloads
 - `services/stream-processor/`: Spark Structured Streaming code for live processing
-- `services/batch-processor/`: Spark batch jobs for scheduled reports and historical analytics
+- `services/batch-analytics/`: batch analytics job that reads archived processed, invalid, and breach-window outputs and writes compliance and audit summaries
 
 Why needed:
 - gives each main runtime service its own isolated code area
@@ -103,11 +105,11 @@ Why needed:
 This folder keeps workflow orchestration separate from processing logic.
 
 Subfolders:
-- `orchestration/airflow/dags/`: Airflow DAG definitions
+- `orchestration/airflow/dags/`: Airflow DAG definitions, including `vacciguard_batch_analytics_dag.py`
 - `orchestration/airflow/configs/`: Airflow-specific configuration files
 
 Why needed:
-- keeps Airflow focused on batch orchestration and scheduled evaluation
+- keeps Airflow focused on manual and scheduled workflow orchestration without mixing DAG logic into the data-processing services
 - avoids mixing DAG logic with Spark job code
 
 ### `infra/`
@@ -134,6 +136,7 @@ Subfolders:
 - `tests/smoke/`: quick checks that the basic pipeline works
 - `tests/workload/`: workload and replay validation tests
 - `tests/failure/`: restart, recovery, and resilience checks
+- `tests/evaluation/`: evaluation-controller and documentation regression tests for the benchmark and batch-processing workflow
 
 Why needed:
 - separates implementation from verification
@@ -167,7 +170,7 @@ Why needed:
 ## Ownership Mapping
 
 - **Alok**: `data/`, `services/replay-producer/`, parts of `tests/workload/`
-- **Aayush**: `services/stream-processor/`, `services/batch-processor/`
+- **Aayush**: `services/stream-processor/`, `services/batch-analytics/`
 - **Monty**: `infra/`, `orchestration/`, parts of `tests/failure/`
 - **Tanish**: integration across all folders, `results/`, and structure consistency
 

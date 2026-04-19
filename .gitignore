@@ -1,0 +1,26 @@
+.DS_Store
+__pycache__/
+*.pyc
+.worktrees/
+.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfvars
+!*.tfvars.example
+tfplan
+artifacts/aws-baseline-evaluations/*.md
+data/workloads/dev/events.ndjson
+data/workloads/evaluation/v1/*.events.ndjson
+
+data/output/**
+!data/output/.gitkeep
+!data/output/checkpoints/
+!data/output/checkpoints/.gitkeep
+!data/output/invalid/
+!data/output/invalid/.gitkeep
+!data/output/processed/
+!data/output/processed/.gitkeep
+
+# Local workload-shifting helpers used during evaluation experimentation.
+scripts/shift_workload_timestamps.py
+tests/evaluation/test_shift_workload_timestamps.py

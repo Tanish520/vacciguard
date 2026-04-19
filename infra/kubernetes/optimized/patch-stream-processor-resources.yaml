@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stream-processor
+  namespace: vacciguard
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        pipeline_target: optimized
+    spec:
+      containers:
+        - name: stream-processor
+          resources:
+            requests:
+              cpu: "1750m"
+              memory: "3072Mi"
+            limits:
+              cpu: "2500m"
+              memory: "4096Mi"
+          volumeMounts:
+            - name: checkpoint-vol
+              mountPath: /data/checkpoints
+      volumes:
+        - name: checkpoint-vol
+          emptyDir: {}
