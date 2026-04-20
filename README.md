@@ -266,12 +266,4 @@ The evaluation controller writes per-run JSON + Markdown reports to S3 and the `
 
 ---
 
-## Success Criteria
 
-| Metric | Target | Baseline | Optimized |
-|---|---|---|---|
-| Latency — normal load (avg) | ≤ 5 s | 2.60 s ✅ | 14.19 s |
-| Latency — 10× spike (avg) | ≤ 5 s | 225.76 s ❌ | 22.94 s |
-| Spike absorption | No data loss | Backlog builds | Stable ✅ |
-| Failure recovery time | ≤ 2 min | Passes ✅ | — |
-| Cost per GB — spike | Lower than baseline | $0.25/GB | $0.25/GB |
