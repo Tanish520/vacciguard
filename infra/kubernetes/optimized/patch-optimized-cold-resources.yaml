@@ -10,8 +10,8 @@ spec:
         - name: stream-processor
           resources:
             requests:
-              cpu: "1000m"
-              memory: "2560Mi"
+              cpu: "400m"
+              memory: "2048Mi"
             limits:
-              cpu: "2000m"
-              memory: "4096Mi"
+              cpu: "1500m"
+              memory: "3072Mi"

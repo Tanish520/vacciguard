@@ -18,6 +18,15 @@ spec:
           image: grafana/grafana:11.1.0
           ports:
             - containerPort: 3000
+          env:
+            - name: GF_AUTH_ANONYMOUS_ENABLED
+              value: "true"
+            - name: GF_AUTH_ANONYMOUS_ORG_ROLE
+              value: "Admin"
+            - name: GF_AUTH_BASIC_ENABLED
+              value: "true"
+            - name: GF_SECURITY_ALLOW_EMBEDDING
+              value: "true"
           volumeMounts:
             - name: datasource
               mountPath: /etc/grafana/provisioning/datasources
@@ -33,5 +42,9 @@ spec:
           configMap:
             name: grafana-dashboard-provider
         - name: dashboards
-          configMap:
-            name: grafana-dashboard-baseline-overview
+          projected:
+            sources:
+              - configMap:
+                  name: grafana-dashboard-baseline-overview
+              - configMap:
+                  name: grafana-dashboard-live-demo

@@ -23,8 +23,10 @@ spec:
             - name: WORKLOAD_FAMILY_VERSION
               value: evaluation-workload-v1
             - name: S3_BUCKET_NAME
-              value: vacciguard-tanish-baseline-ap-south-1-data
+              value: vacciguard-baseline-893721683785-data
             - name: EVALUATION_CONTROLLER_MODE
               value: orchestrate
             - name: PIPELINE_CONFIG_NAME
               value: vacciguard-pipeline-config
+            - name: REPLAY_IMAGE
+              value: 893721683785.dkr.ecr.ap-south-1.amazonaws.com/vacciguard-minimal-replay-producer:aws-deploy-20260622t081349z-amd64

@@ -1,269 +1,150 @@
 # VacciGuard
 
-A production-style cloud data pipeline for vaccine cold-chain monitoring, built on AWS. VacciGuard ingests live IoT telemetry from refrigeration devices, detects temperature breaches in real time, archives events for batch compliance reporting, and includes a full evaluation framework that compares a baseline pipeline against an optimized design across latency, throughput, spike resilience, and cost.
+VacciGuard is a cloud-native monitoring pipeline for vaccine cold-chain telemetry. It ingests live device events, detects temperature breaches in near real time, stores device state for fast reads, and keeps a historical record for reporting and analysis.
 
----
+This project started from a practical question: how do you keep a monitoring pipeline responsive when thousands of refrigeration devices reconnect at once? The final system runs on AWS, uses Kubernetes for deployment, and separates the low-latency alerting path from the heavier archival path so that operational writes do not get blocked by storage work.
 
-## Table of Contents
+## Why this project
 
-- [Overview](#overview)
-- [Architecture](#architecture)
-- [Tech Stack](#tech-stack)
-- [Evaluation Results](#evaluation-results)
-- [Repository Structure](#repository-structure)
-- [Quick Start — Local Dev](#quick-start--local-dev)
-- [AWS Deployment](#aws-deployment)
-- [Batch Analytics](#batch-analytics)
-- [Running the Evaluation](#running-the-evaluation)
-- [Success Criteria](#success-criteria)
+Vaccines need to stay within a narrow temperature range from storage to administration. If a sensor reports a breach too late, the data is much less useful operationally. The project was designed around that constraint: fast enough for live monitoring, durable enough for audits, and simple enough to evaluate under controlled workloads.
 
----
+## What the pipeline does
 
-## Overview
-
-Vaccine storage requires continuous temperature monitoring. A single undetected breach can compromise entire batches. VacciGuard addresses this with a hybrid streaming and batch pipeline:
-
-- **Hot path** — Kafka → Spark Structured Streaming → Redis. Breach alerts land in Redis within seconds of the sensor event.
-- **Cold path** — Spark archives enriched Parquet files to Amazon S3 for durable long-term storage.
-- **Batch path** — A scheduled Pandas/PyArrow job aggregates the cold-path archives into daily facility and device compliance summaries, queryable via Amazon Athena.
-
-Two pipeline configurations were built and benchmarked: a **baseline** (single fixed-resource stream processor) and an **optimized** design (split hot/cold resource allocation with tuned batch intervals).
-
----
+- Receives telemetry such as temperature, battery level, door state, and event time
+- Streams live events through Kafka into Spark Structured Streaming
+- Validates, deduplicates, and enriches the data with device reference information
+- Writes the latest device state and active breach information to Redis for quick access
+- Writes processed records, invalid events, and breach windows to S3 for analysis
+- Supports scheduled batch summaries over archived data using Airflow and Athena
 
 ## Architecture
 
-```
-IoT Devices (120 devices across 20 facilities)
-    │
-    ▼
-Apache Kafka  (KRaft mode, no Zookeeper)
-    │
-    ├──► Spark Structured Streaming ──► Redis          (hot path: breach detection, live device status)
-    │            │
-    │            └──► Amazon S3 / Parquet              (cold path: enriched event archive)
-    │
-    └──► Batch Analytics  (Airflow + Pandas + PyArrow)
-                 │
-                 └──► Amazon S3 Parquet summaries      (daily compliance + audit reports → Athena)
-```
+The project ended up with two distinct processing paths:
 
-**Monitoring:** Prometheus + Grafana for in-cluster runtime metrics. AWS CloudWatch + Container Insights for infrastructure-level telemetry.
+- a hot path for low-latency operational updates
+- a cold path for archival storage and downstream analytics
 
----
+That split is the main design decision behind the performance improvement. In the baseline version, both responsibilities lived in one streaming job. In the optimized version, they are separated so Redis updates can stay fast even when S3-facing work gets heavier.
 
-## Tech Stack
+![VacciGuard system architecture](assets/readme/vacciguard-architecture.png)
 
-| Layer | Technology |
-|---|---|
-| Message broker | Apache Kafka (KRaft mode) |
-| Stream processing | Apache Spark Structured Streaming |
-| Hot store | Redis |
-| Cold store | Amazon S3 (Snappy Parquet) |
-| Batch orchestration | Apache Airflow |
-| Batch processing | Pandas + PyArrow |
-| Query layer | Amazon Athena |
-| Infrastructure | Terraform + Kubernetes (EKS, `ap-south-1`) |
-| Monitoring | Prometheus, Grafana, AWS CloudWatch |
-| Local dev | Docker Compose |
+## Key design choices
 
----
+### 1. Split hot and cold responsibilities
 
-## Evaluation Results
+The optimized pipeline uses separate deployments for the Redis-facing path and the S3-facing path. That gave the live path a much more stable latency profile during spike tests.
 
-All scenarios ran against a live AWS EKS cluster at 100 eps (normal) and 1,000 eps (spike). The 5-second end-to-end latency SLA and 2-minute failure recovery target are the key benchmarks.
+### 2. Keep the stack close to common cloud tooling
 
-### Baseline Pipeline
+The system uses tools that fit naturally together for this kind of workload:
 
-| Scenario | Avg Latency | P95 Latency | Throughput | Cost/Run | Cost/GB |
-|---|---|---|---|---|---|
-| Normal load (100 eps) | 2.60 s ✅ | 3.11 s ✅ | 100 eps | ~$0.017 | ~$2.58/GB |
-| 10× spike (1,000 eps) | 225.76 s ❌ | 225.77 s ❌ | 999.9 eps | ~$0.017 | ~$0.25/GB |
-| Failure recovery | 3.18 s ✅ | 3.51 s ✅ | 100 eps | ~$0.033 | ~$2.51/GB |
+- Kafka for ingestion
+- Spark Structured Streaming for stream processing
+- Redis for current device state
+- S3 and Parquet for historical storage
+- Airflow and Athena for scheduled analytics
+- Terraform, EKS, Prometheus, and Grafana for infrastructure and observability
 
-> The baseline meets the SLA under normal load and recovers from failure. However, it cannot absorb a 10× traffic spike — latency blows out to 225 seconds as the fixed-resource processor falls behind.
+### 3. Evaluate the architecture, not just the code
 
-### Optimized Pipeline
+The project includes a baseline pipeline and an optimized pipeline, then compares them under normal load, spike load, and failure-recovery scenarios. That made it possible to show whether the design change actually mattered.
 
-| Scenario | Avg Latency | P95 Latency | Throughput | Cost/Run | Cost/GB |
-|---|---|---|---|---|---|
-| Normal load (100 eps) | 14.19 s | 35.88 s | 100 eps | ~$0.017 | ~$2.58/GB |
-| 10× spike (1,000 eps) | 22.94 s ✅ | 33.76 s ✅ | 999.9 eps | ~$0.017 | ~$0.25/GB |
+## Results
 
-> The optimized pipeline absorbs the 10× spike with stable latency, at the same cost per run. The trade-off: higher latency under normal load due to split resource allocation and longer batch intervals.
+The SLA target was under 5 seconds end-to-end — from the moment a sensor fires to when the monitoring dashboard reflects the change. That's easy to hit at 100 events/second steady state. The real test was whether it held at 1,000 events/second, which simulates a mass device reconnection after a district-wide power outage.
 
-Full per-run reports are in [`Evaluation Result/`](Evaluation%20Result/).
+Each scenario was run 3 independent times on a live EKS cluster. The numbers below are 3-run means.
 
----
+| Scenario | Baseline avg | Baseline P95 | Optimized avg | Optimized P95 |
+| --- | --- | --- | --- | --- |
+| Normal load (100 eps, 5 min) | 2.67 s | 3.19 s | 1.56 s | 1.75 s |
+| Spike load (1,000 eps, 5 min) | 231.78 s | 231.79 s | 2.10 s | 2.32 s |
+| Failure recovery (pod kill at 3 min) | 3.27 s | 3.61 s | 1.78 s | 1.93 s |
+| Recovery time | — | 64.4 s | — | 15.67 s |
 
-## Repository Structure
+The spike failure in the baseline came down to a single config parameter: `MAX_OFFSETS_PER_TRIGGER = 1000` on a 2-second trigger interval caps the hot path at 500 events/second. At 1,000 eps input the backlog grows faster than it drains, and after 5 minutes the last event has been sitting in Kafka for over 3 minutes. The pipeline never lost data — correctness was fine throughout — but timeliness completely fell apart.
 
-```
-vacciguard/
-├── services/
-│   ├── stream-processor/        # Spark Structured Streaming job (hot + cold path)
-│   ├── batch-analytics/         # Daily compliance summary builders (Pandas + PyArrow)
-│   ├── replay-producer/         # Kafka event replay for load tests and local dev
-│   ├── batch-processor/         # Supporting batch utilities
-│   └── evaluation-controller/   # Automated baseline vs. optimized evaluation runner
-│
-├── infra/
-│   ├── terraform/               # AWS resource definitions (EKS, S3, IAM, VPC)
-│   ├── kubernetes/              # Kustomize overlays: base, baseline, optimized
-│   └── monitoring/              # Prometheus, Grafana, and CloudWatch configs
-│
-├── orchestration/
-│   └── airflow/dags/            # Batch analytics Airflow DAG
-│
-├── data/
-│   ├── reference/               # Device-to-facility lookup (120 devices, 20 facilities)
-│   ├── workloads/               # Generated replay workloads
-│   └── batch/                   # Daily operations log CSVs
-│
-├── Evaluation Result/
-│   ├── Baseline Pipeline/       # Per-scenario metric reports (normal, spike, failure-recovery)
-│   └── Optimized Pipeline/      # Per-scenario metric reports
-│
-├── tests/                       # Smoke, evaluation, monitoring, and unit tests
-├── scripts/                     # Dev, demo, and evaluation helper scripts
-├── docs/                        # Architecture and deployment documentation
-└── docker-compose.yml           # Local dev stack (Kafka, Redis, stream processor)
-```
+Separating hot and cold into independent services fixed this. The hot path no longer waits on S3 commits, the offset cap is gone, and under the same 1,000 eps spike the mean latency dropped from 231.78 seconds to 2.10 seconds. Infrastructure cost per run stayed identical at roughly $0.017.
 
----
+Those numbers matter more than the headline: the optimized version did not just run faster in ideal conditions, it stayed within the intended latency envelope when the workload became unfriendly.
 
-## Quick Start — Local Dev
+**Optimized split pipeline — normal load, SLA well within target**
 
-### Prerequisites
+![Optimized pipeline dashboard](assets/readme/optimized-dashboard.png)
 
-- Python 3.9+
-- Docker and Docker Compose
-- `pip install -r requirements-dev.txt`
+**Baseline pipeline — same load, for comparison**
 
-### Run the full local pipeline
+![Baseline pipeline dashboard](assets/readme/baseline-dashboard.png)
 
-**1. Generate the dev workload** (300 events across 3 devices at 5 eps):
+**Failure recovery and data quality — optimized pipeline after a pod kill**
 
-```bash
-python3 scripts/generate-dev-workload.py
-```
+The panel below shows the recovery timeline (latency spike when the pod goes down, then returns to normal within ~15 seconds) alongside data quality metrics that stayed stable throughout.
 
-**2. Start Kafka, Redis, and the stream processor:**
+![Failure recovery and data quality](Grafana%202.png)
 
-```bash
-docker compose up -d kafka redis stream-processor
-```
+For a fuller breakdown of the experiments, the repository also includes per-scenario evaluation writeups in `Evaluation Result/`.
 
-**3. Replay the workload:**
+## Repository guide
 
-```bash
-docker compose run --rm replay-producer
-```
+If you are reviewing the project for the first time, these are the folders worth opening first:
 
-**4. Inspect hot-path state in Redis:**
+- `services/stream-processor/` for the main streaming job
+- `services/replay-producer/` for replaying workloads into Kafka
+- `services/batch-analytics/` for scheduled summary generation
+- `services/evaluation-controller/` for automated evaluation runs
+- `infra/kubernetes/` for the baseline and optimized deployments
+- `infra/terraform/` for AWS infrastructure
+- `orchestration/airflow/` for the batch workflow
+- `scripts/` for local runs and evaluation helpers
+- `tests/` for representative validation of the pipeline
 
-```bash
-docker compose exec redis redis-cli GET device:status:FR-0102
-docker compose exec redis redis-cli ZRANGE active_breaches 0 -1 WITHSCORES
-```
+## Running the project locally
 
-**5. Inspect cold-path output:**
+For a local run, the shortest path is:
 
-```bash
-find data/output/processed      -name '*.parquet' | sort
-find data/output/invalid        -name '*.json'    | sort
-find data/output/breach_windows -name '*.json'    | sort
-```
+1. Install Python dependencies from `requirements-dev.txt`.
+2. Generate the development workload.
+3. Start Kafka, Redis, and the stream processor with Docker Compose.
+4. Replay the sample workload.
+5. Check Redis state and local output files.
 
-**6. Run smoke verification:**
-
-```bash
-python3 tests/smoke/verify_phase4.py
-```
-
-Or run everything in one command:
+You can run the end-to-end local flow with:
 
 ```bash
 bash scripts/run-phase4-local.sh
 ```
 
----
-
-## AWS Deployment
-
-### Validate infrastructure configs
+If you want to step through it manually:
 
 ```bash
-terraform -chdir=infra/terraform fmt -check
+# Generate a small dev workload (300 events, 5 eps)
+python3 scripts/generate-dev-workload.py
 
-kubectl kustomize infra/kubernetes/base      > /tmp/vacciguard-base.yaml
-kubectl kustomize infra/kubernetes/baseline  > /tmp/vacciguard-baseline.yaml
-kubectl kustomize infra/kubernetes/optimized > /tmp/vacciguard-optimized.yaml
+# Start the stack
+docker compose up -d kafka redis stream-processor
+
+# Replay the workload
+docker compose run --rm replay-producer
+
+# Check hot-path state in Redis
+docker compose exec redis redis-cli GET device:status:FR-0102
+docker compose exec redis redis-cli ZRANGE active_breaches 0 -1 WITHSCORES
+
+# Check cold-path output
+find data/output/processed -name '*.parquet' | sort
 ```
 
-### Deploy monitoring
+## AWS and evaluation notes
 
-```bash
-kubectl apply -k infra/monitoring/prometheus
-kubectl apply -k infra/monitoring/grafana
+The AWS side of the project is set up for EKS-based deployment and repeatable evaluation runs. The repository includes:
 
-# Access dashboards locally
-kubectl port-forward -n monitoring svc/prometheus 9090:9090
-kubectl port-forward -n monitoring svc/grafana    3000:3000
-```
+- Kubernetes manifests for base, baseline, and optimized environments
+- Terraform for infrastructure provisioning
+- scripts for launching evaluation-controller jobs
+- monitoring setup for Prometheus and Grafana
 
-See [docs/aws-baseline-foundation.md](docs/aws-baseline-foundation.md) for the full baseline deployment structure.
+The evaluation workflow is centered on comparing the baseline and optimized variants under the same workload family rather than tuning one-off demo numbers.
 
----
+## Tech stack
 
-## Batch Analytics
-
-After the stream processor archives events to S3, the batch job aggregates them into three daily Parquet summaries:
-
-| Table | Description |
-|---|---|
-| `facility_compliance` | Facility-level daily breach rate, temperature range, device count |
-| `device_compliance` | Device-level daily breach rate, temperature stats, district/state |
-| `audit_summary` | Invalid event breakdown, breach windows, repeated-breach devices |
-
-### Run the batch job
-
-```bash
-python3 services/batch-analytics/job.py \
-  --processed-input      s3://YOUR_BUCKET/processed/ \
-  --invalid-input        s3://YOUR_BUCKET/invalid/ \
-  --breach-windows-input s3://YOUR_BUCKET/breach_windows/ \
-  --compliance-output           s3://YOUR_BUCKET/batch/latest/compliance \
-  --device-compliance-output    s3://YOUR_BUCKET/batch/latest/device-compliance \
-  --audit-output                s3://YOUR_BUCKET/batch/latest/audit
-```
-
-### Query results with Athena
-
-Run the demo script to auto-create Athena tables and execute pre-built compliance queries:
-
-```bash
-bash scripts/demo-batch-athena.sh
-```
-
-This creates the `vacciguard_batch` Athena database with all three tables and runs four demo queries — breach rates by facility, top breaching devices, audit health, and facilities needing urgent attention.
-
-The Airflow DAG at [`orchestration/airflow/dags/vacciguard_batch_analytics_dag.py`](orchestration/airflow/dags/vacciguard_batch_analytics_dag.py) orchestrates scheduled production runs.
-
----
-
-## Running the Evaluation
-
-```bash
-# Baseline evaluation (normal, spike, failure-recovery scenarios)
-bash scripts/run-aws-baseline-evaluation.sh
-
-# Live demo: normal load → pod failure injection → recovery
-bash scripts/demo.sh
-```
-
-The evaluation controller writes per-run JSON + Markdown reports to S3 and the `Evaluation Result/` directory. Key metrics captured: end-to-end latency (avg/p95/p99), throughput, consumer lag, pod restart count, recovery time, and cost per GB.
-
----
-
-
+Python, Kafka, Spark Structured Streaming, Redis, Amazon S3, Airflow, Athena, Terraform, Kubernetes on EKS, Prometheus, and Grafana.

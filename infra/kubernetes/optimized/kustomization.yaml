@@ -6,6 +6,16 @@ resources:
   - configmap-pipeline-cold.yaml
   - deployment-stream-processor-hot.yaml
   - deployment-stream-processor-cold.yaml
+images:
+  - name: 347038623570.dkr.ecr.ap-south-1.amazonaws.com/vacciguard-stream-processor
+    newName: 893721683785.dkr.ecr.ap-south-1.amazonaws.com/vacciguard-stream-processor
+    newTag: aws-deploy-20260622t081349z-amd64
+  - name: 347038623570.dkr.ecr.ap-south-1.amazonaws.com/vacciguard-minimal-replay-producer
+    newName: 893721683785.dkr.ecr.ap-south-1.amazonaws.com/vacciguard-minimal-replay-producer
+    newTag: aws-deploy-20260622t081349z-amd64
+  - name: 347038623570.dkr.ecr.ap-south-1.amazonaws.com/vacciguard-evaluation-controller
+    newName: 893721683785.dkr.ecr.ap-south-1.amazonaws.com/vacciguard-evaluation-controller
+    newTag: aws-deploy-20260622t081349z-amd64
 patches:
   - path: delete-stream-processor.yaml
   - path: configmap-pipeline.yaml

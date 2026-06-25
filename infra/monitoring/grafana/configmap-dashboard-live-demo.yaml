@@ -1,0 +1,261 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-live-demo
+  namespace: monitoring
+data:
+  live-demo.json: |
+    {
+      "title": "VacciGuard Live Demo Dashboard",
+      "uid": "vacciguard-live-demo",
+      "schemaVersion": 39,
+      "version": 2,
+      "refresh": "5s",
+      "time": { "from": "now-15m", "to": "now" },
+      "templating": { "list": [] },
+      "panels": [
+        {
+          "id": 1,
+          "title": "SLA Status",
+          "type": "stat",
+          "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "decimals": 2,
+              "color": { "mode": "thresholds" },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "yellow", "value": 5 },
+                  { "color": "red", "value": 8 }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "background",
+            "graphMode": "none",
+            "justifyMode": "center",
+            "textMode": "value_and_name",
+            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+          },
+          "targets": [
+            { "datasource": "Prometheus", "expr": "max(vacciguard_stream_latest_batch_avg_latency_seconds)", "refId": "A" }
+          ]
+        },
+        {
+          "id": 2,
+          "title": "Pipeline Mode",
+          "type": "stat",
+          "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "fixed", "fixedColor": "blue" },
+              "mappings": [
+                { "type": "value", "options": {
+                  "1": { "text": "BASELINE", "color": "blue", "index": 0 },
+                  "2": { "text": "OPTIMIZED SPLIT", "color": "blue", "index": 1 }
+                } }
+              ]
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "background",
+            "graphMode": "none",
+            "justifyMode": "center",
+            "textMode": "value",
+            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+          },
+          "targets": [
+            { "datasource": "Prometheus", "expr": "count(vacciguard_stream_queries_active)", "refId": "A" }
+          ]
+        },
+        {
+          "id": 3,
+          "title": "Load Level (target eps)",
+          "type": "stat",
+          "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+          "fieldConfig": {
+            "defaults": { "unit": "none", "decimals": 0, "color": { "mode": "fixed", "fixedColor": "green" } },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "background",
+            "graphMode": "none",
+            "justifyMode": "center",
+            "textMode": "value_and_name",
+            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+          },
+          "targets": [
+            { "datasource": "Prometheus", "expr": "max(vacciguard_replay_configured_rate_events_per_second)", "refId": "A" }
+          ]
+        },
+        {
+          "id": 4,
+          "title": "Throughput (observed eps)",
+          "type": "stat",
+          "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+          "fieldConfig": {
+            "defaults": { "unit": "none", "decimals": 0, "color": { "mode": "fixed", "fixedColor": "green" } },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "background",
+            "graphMode": "area",
+            "justifyMode": "center",
+            "textMode": "value_and_name",
+            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+          },
+          "targets": [
+            { "datasource": "Prometheus", "expr": "max(vacciguard_stream_observed_throughput_eps)", "refId": "A" }
+          ]
+        },
+        {
+          "id": 10,
+          "title": "Live Ingestion",
+          "type": "row",
+          "collapsed": false,
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 4 }
+        },
+        {
+          "id": 11,
+          "title": "Consumer Lag Over Time",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 24, "x": 0, "y": 5 },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "none",
+              "color": { "mode": "palette-classic" },
+              "custom": { "drawStyle": "line", "fillOpacity": 30, "lineWidth": 1, "showPoints": "never" }
+            },
+            "overrides": []
+          },
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "single" } },
+          "targets": [
+            { "datasource": "Prometheus", "expr": "max(vacciguard_stream_consumer_lag_records)", "legendFormat": "Consumer Lag (records)", "refId": "A" }
+          ]
+        },
+        {
+          "id": 20,
+          "title": "Latency SLA",
+          "type": "row",
+          "collapsed": false,
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 13 }
+        },
+        {
+          "id": 21,
+          "title": "Avg Latency Trend",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 8, "x": 0, "y": 14 },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "color": { "mode": "palette-classic" },
+              "custom": { "drawStyle": "line", "fillOpacity": 20, "lineWidth": 2, "showPoints": "never" }
+            },
+            "overrides": []
+          },
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "single" } },
+          "targets": [
+            { "datasource": "Prometheus", "expr": "max(vacciguard_stream_latest_batch_avg_latency_seconds)", "legendFormat": "Avg Latency", "refId": "A" }
+          ]
+        },
+        {
+          "id": 22,
+          "title": "P95 Latency Trend",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 8, "x": 8, "y": 14 },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "color": { "mode": "palette-classic" },
+              "custom": { "drawStyle": "line", "fillOpacity": 20, "lineWidth": 2, "showPoints": "never" }
+            },
+            "overrides": []
+          },
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "single" } },
+          "targets": [
+            { "datasource": "Prometheus", "expr": "max(vacciguard_stream_latest_batch_p95_latency_seconds)", "legendFormat": "P95 Latency", "refId": "A" }
+          ]
+        },
+        {
+          "id": 23,
+          "title": "P95 Latency Gauge",
+          "type": "gauge",
+          "gridPos": { "h": 8, "w": 8, "x": 16, "y": 14 },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "decimals": 2,
+              "min": 0,
+              "max": 10,
+              "color": { "mode": "thresholds" },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "yellow", "value": 5 },
+                  { "color": "red", "value": 8 }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "showThresholdLabels": false,
+            "showThresholdMarkers": true,
+            "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+          },
+          "targets": [
+            { "datasource": "Prometheus", "expr": "max(vacciguard_stream_latest_batch_p95_latency_seconds)", "refId": "A" }
+          ]
+        },
+        {
+          "id": 30,
+          "title": "Batch Processing Architecture",
+          "type": "row",
+          "collapsed": false,
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 22 }
+        },
+        {
+          "id": 31,
+          "title": "Hot Batch Duration",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 23 },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "color": { "mode": "palette-classic" },
+              "custom": { "drawStyle": "line", "fillOpacity": 25, "lineWidth": 1, "showPoints": "never" }
+            },
+            "overrides": []
+          },
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "single" } },
+          "targets": [
+            { "datasource": "Prometheus", "expr": "max(vacciguard_stream_hot_batch_duration_seconds)", "legendFormat": "Hot Batch Duration", "refId": "A" }
+          ]
+        },
+        {
+          "id": 32,
+          "title": "Cold Batch Duration",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 23 },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "color": { "mode": "palette-classic" },
+              "custom": { "drawStyle": "line", "fillOpacity": 25, "lineWidth": 1, "showPoints": "never" }
+            },
+            "overrides": []
+          },
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "single" } },
+          "targets": [
+            { "datasource": "Prometheus", "expr": "max(vacciguard_stream_cold_batch_duration_seconds)", "legendFormat": "Cold Batch Duration", "refId": "A" }
+          ]
+        }
+      ]
+    }

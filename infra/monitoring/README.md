@@ -2,14 +2,11 @@
 
 This directory contains the baseline observability stack for VacciGuard.
 
-- `cloudwatch/`: AWS and EKS runtime visibility guidance
 - `prometheus/`: in-cluster metrics collection
 - `grafana/`: baseline dashboard presentation
-- `aws-managed/`: AMP, Amazon Managed Grafana, and CloudWatch guidance for EKS evaluation runs
 
 The baseline monitoring split is:
 
-- CloudWatch plus Container Insights for AWS and EKS health
 - Prometheus plus Grafana for in-cluster metrics and dashboards
 
 ## Operational Monitoring
@@ -93,9 +90,6 @@ Prometheus also evaluates a minimal VacciGuard SLA alert rule set for live detec
 
 These rules are intentionally small. They are enough to prove live SLA violation detection without adding a separate notification stack.
 
-When the AWS-managed path is enabled, keep the local stack for development but
-send evaluation runs through the managed bundle under `infra/monitoring/aws-managed`
-and `infra/kubernetes/aws-observability`.
-
-The managed dashboard compares baseline and optimized runs on the same panels
-by grouping the application metrics with the `pipeline_target` label.
+The dashboard panels are organized around latency, consumer lag, throughput,
+and data-quality signals so the live behavior of the pipeline is visible during
+local and cluster-based runs.

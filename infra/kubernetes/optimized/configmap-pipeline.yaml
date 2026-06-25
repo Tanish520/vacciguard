@@ -5,6 +5,15 @@ metadata:
   namespace: vacciguard
 data:
   PIPELINE_MODE: optimized
+  KAFKA_TOPIC: vacciguard-optimized-demo
+  KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+  KAFKA_STARTING_OFFSETS: earliest
+  REDIS_HOST: vacciguard-baseline-redis.ntns1o.0001.aps1.cache.amazonaws.com
+  REDIS_PORT: "6379"
+  REDIS_DB: "0"
+  PROCESSED_OUTPUT_PATH: s3a://vacciguard-baseline-893721683785-data/optimized-demo/processed
+  INVALID_OUTPUT_PATH: s3a://vacciguard-baseline-893721683785-data/optimized-demo/invalid
+  BREACH_WINDOW_OUTPUT_PATH: s3a://vacciguard-baseline-893721683785-data/optimized-demo/breach_windows
   MAX_OFFSETS_PER_TRIGGER: "2000"
   TRIGGER_INTERVAL: 1 seconds
   WATERMARK_DELAY: 30 seconds

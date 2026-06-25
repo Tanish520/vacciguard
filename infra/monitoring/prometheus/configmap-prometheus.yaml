@@ -30,7 +30,7 @@ data:
             regex: metrics
           - source_labels: [__meta_kubernetes_pod_label_app]
             action: keep
-            regex: stream-processor
+            regex: stream-processor.*
           - source_labels: [__meta_kubernetes_pod_name]
             target_label: pod
       - job_name: replay-producer-metrics
